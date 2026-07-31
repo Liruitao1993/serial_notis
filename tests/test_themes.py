@@ -7,6 +7,7 @@ import card_window as cw
 import themes
 from alias_store import AliasStore
 from app_config import AppConfig
+from card_window import FONT_SIZE_MIN
 
 BALL_KEYS = {"grad", "text", "flash_added", "flash_removed"}
 CARD_KEYS = {
@@ -63,6 +64,33 @@ def test_config_defaults_include_appearance(tmp_path):
     assert cfg.card_style == "卡片"
     assert isinstance(cfg.card_radius, int)
     assert 0 <= cfg.card_radius <= themes.RADIUS_MAX
+    assert cfg.font_family == ""
+    assert cfg.font_size == 12
+    assert cfg.font_color == ""
+    assert cfg.card_width == 320
+
+
+def test_apply_theme_font_and_color(qapp, tmp_path):
+    config = AppConfig(path=tmp_path / "config.json")
+    config.set("font_size", 14)
+    config.set("font_color", "#FF0000")
+    config.set("font_family", "微软雅黑")
+    card = cw.CardWindow(AliasStore(path=tmp_path / "aliases.json"), config)
+    qss = card.styleSheet()
+    assert "font-size: 16px" in qss      # 标题 = 字号 + 2
+    assert "font-size: 13px" in qss      # 计数 = 字号 - 1
+    assert "#FF0000" in qss              # 颜色覆盖
+    assert card.font().family() == "微软雅黑"
+
+
+def test_apply_theme_card_width(qapp, tmp_path):
+    config = AppConfig(path=tmp_path / "config.json")
+    config.set("card_width", 400)
+    card = cw.CardWindow(AliasStore(path=tmp_path / "aliases.json"), config)
+    card.show()
+    qapp.processEvents()
+    assert card.width() == 400
+    assert card.minimumWidth() == 400  # setFixedWidth 锁定
 
 
 def test_apply_theme_generates_theme_qss(qapp, tmp_path):
@@ -116,4 +144,41 @@ def test_settings_dialog_change_applies_and_persists(qapp, tmp_path):
     reloaded = AppConfig(path=tmp_path / "config.json")
     assert reloaded.ball_theme == "黑金"
     assert reloaded.card_radius == 0
+    dialog.deleteLater()
+
+
+def test_settings_dialog_typography_controls(qapp, tmp_path):
+    from settings_dialog import SettingsDialog
+
+    config = AppConfig(path=tmp_path / "config.json")
+    dialog = SettingsDialog(config)
+    # 字体：可编辑 + 有「跟随系统」项（不依赖系统已装字体）
+    assert dialog._font_combo.isEditable()
+    assert dialog._font_combo.itemData(0) == ""
+    assert dialog._font_combo.count() >= 1
+    # 字号 / 宽度范围
+    assert dialog._font_size_spin.minimum() == FONT_SIZE_MIN
+    assert dialog._font_size_spin.value() == 12
+    assert dialog._width_spin.minimum() == 240
+    assert dialog._width_spin.maximum() == 480
+    assert dialog._width_spin.value() == 320
+    # 无自定义颜色时「跟随主题」不可点
+    assert not dialog._color_reset.isEnabled()
+    dialog.deleteLater()
+
+
+def test_settings_dialog_typography_apply(qapp, tmp_path):
+    from settings_dialog import SettingsDialog
+
+    config = AppConfig(path=tmp_path / "config.json")
+    previewed = []
+    dialog = SettingsDialog(config, on_preview=lambda: previewed.append(1))
+    dialog._font_size_spin.setValue(16)
+    assert config.font_size == 16
+    dialog._width_spin.setValue(360)
+    assert config.card_width == 360
+    # 手输自定义字体名（可编辑下拉框）
+    dialog._font_combo.setEditText("微软雅黑")
+    assert config.font_family == "微软雅黑"
+    assert len(previewed) >= 3
     dialog.deleteLater()

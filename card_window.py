@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
@@ -31,6 +32,9 @@ FADE_IN_MS = 250
 FADE_OUT_MS = 400
 
 CARD_WIDTH = 320
+# 字号可调范围
+FONT_SIZE_MIN = 8
+FONT_SIZE_MAX = 18
 
 # 卡片背景透明度（alpha）可调范围与默认值
 ALPHA_MIN = 50
@@ -58,6 +62,7 @@ class NotificationItem(QFrame):
         lifetime_ms=NOTIFY_LIFETIME_MS,
         parent=None,
         colors=None,
+        font_size=12,
     ):
         super().__init__(parent)
         self.setObjectName("notifyItem")
@@ -80,13 +85,14 @@ class NotificationItem(QFrame):
             QLabel {{ background: transparent; border: none; color: {text_color}; }}
             """
         )
+        self._font_size = font_size
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(8)
 
         icon_label = QLabel(icon)
-        icon_label.setStyleSheet("font-size: 14px;")
+        icon_label.setStyleSheet(f"font-size: {self._font_size + 2}px;")
         layout.addWidget(icon_label)
 
         # 有备注名优先显示备注，让用户一眼知道是什么设备
@@ -98,7 +104,7 @@ class NotificationItem(QFrame):
                 text += f"  ({clean})"
         text_label = QLabel(text)
         text_label.setWordWrap(True)
-        text_label.setStyleSheet("font-size: 12px;")
+        text_label.setStyleSheet(f"font-size: {self._font_size}px;")
         layout.addWidget(text_label, 1)
 
         # 淡入
@@ -147,7 +153,17 @@ class PortRow(QFrame):
         QLabel { background: transparent; border: none; }
     """
 
-    def __init__(self, device, desc, alias, info=None, parent=None, style_normal=None, style_selected=None):
+    def __init__(
+        self,
+        device,
+        desc,
+        alias,
+        info=None,
+        parent=None,
+        style_normal=None,
+        style_selected=None,
+        font_size=12,
+    ):
         super().__init__(parent)
         self.device = device
         self._selected = False
@@ -155,20 +171,27 @@ class PortRow(QFrame):
         self._style_normal = style_normal or self._STYLE_NORMAL
         self._style_selected = style_selected or self._STYLE_SELECTED
         self.setStyleSheet(self._style_normal)
+        self._font_size = font_size
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 2, 2)
         layout.setSpacing(6)
 
         dev_label = QLabel(f"\u25cf  {device}")
-        dev_label.setStyleSheet("font-size: 12px; color: rgba(255,255,255,230);")
+        dev_label.setStyleSheet(
+            f"font-size: {self._font_size}px; color: rgba(255,255,255,230);"
+        )
         layout.addWidget(dev_label)
 
         if alias:
             info_label = QLabel(alias)
-            info_label.setStyleSheet("font-size: 12px; color: rgba(130, 200, 255, 230);")
+            info_label.setStyleSheet(
+                f"font-size: {self._font_size}px; color: rgba(130, 200, 255, 230);"
+            )
         else:
             info_label = QLabel(desc)
-            info_label.setStyleSheet("font-size: 11px; color: rgba(255,255,255,130);")
+            info_label.setStyleSheet(
+                f"font-size: {max(7, self._font_size - 1)}px; color: rgba(255,255,255,130);"
+            )
         info_label.setWordWrap(False)
         layout.addWidget(info_label, 1)
         # 完整信息放 tooltip（含 VID/PID 与制造商，帮助区分 CH340/FTDI/CP210x）
@@ -190,11 +213,11 @@ class PortRow(QFrame):
         edit_btn.setCursor(Qt.PointingHandCursor)
         edit_btn.setToolTip("编辑备注名称")
         edit_btn.setStyleSheet(
-            """
-            QPushButton { background: transparent; border: none;
-                          color: rgba(255,255,255,140); font-size: 13px; }
-            QPushButton:hover { color: white; background: rgba(255,255,255,40);
-                                border-radius: 4px; }
+            f"""
+            QPushButton {{ background: transparent; border: none;
+                          color: rgba(255,255,255,140); font-size: {self._font_size + 1}px; }}
+            QPushButton:hover {{ color: white; background: rgba(255,255,255,40);
+                                border-radius: 4px; }}
             """
         )
         edit_btn.clicked.connect(lambda: self.edit_requested.emit(device))
@@ -229,6 +252,8 @@ class CardWindow(QWidget):
         # 后续局部重绘（悬停/点击）会先清成白色再叠半透明内容，表现为“变白”
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(CARD_WIDTH)
+        self._card_width = CARD_WIDTH
+        self._font_size = 12
         # 是否因串口事件自动弹出（通知清空后自动收回）
         self.auto_shown = False
         # 当前串口快照缓存（编辑备注后原地刷新用）
@@ -337,13 +362,25 @@ class CardWindow(QWidget):
         return themes.CARD_STYLES["卡片"]
 
     def apply_theme(self):
-        """按配置重建外观：面板 QSS、行样式、通知条配色。"""
+        """按配置重建外观：面板 QSS、行样式、通知条配色、字体与宽度。"""
         t = self._theme()
         s = self._style()
-        if self._config:
+        cfg = self._config
+        if cfg:
             radius = themes.resolve_radius(self._config.card_radius, self._config.card_style)
         else:
             radius = themes.resolve_radius(12, "卡片")
+
+        # 字号（钳制到安全范围），字体族经 QFont 传播到全部子控件
+        try:
+            fs = int(cfg.font_size) if cfg else 12
+        except (TypeError, ValueError):
+            fs = 12
+        self._font_size = max(FONT_SIZE_MIN, min(FONT_SIZE_MAX, fs))
+        family = cfg.font_family if cfg else ""
+        self.setFont(QFont(family, self._font_size))
+        # 颜色覆盖：非空时统一替换标题/正文/计数/弱化文字
+        color_override = cfg.font_color if cfg else ""
 
         def rgba(rgb):
             return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{rgb[3]})"
@@ -370,12 +407,17 @@ class CardWindow(QWidget):
             panel_bg = f"rgba({panel_rgb[0]},{panel_rgb[1]},{panel_rgb[2]},{panel_a})"
 
         accent = rgba(t["row_selected_border"])
+        fs = self._font_size
+        title_color = color_override or t["title"]
+        text_color = color_override or t["text"]
+        count_color = color_override or rgba(t["count"])
+        muted_color = color_override or rgba(t["muted"])
         common = f"""
-            QLabel {{ color: {t['text']}; background: transparent; border: none; }}
-            QLabel#cardTitle {{ font-size: 14px; font-weight: bold; color: {t['title']}; }}
-            QLabel#cardCount {{ font-size: 11px; color: {count}; }}
-            QLabel#emptyLabel {{ font-size: 12px; color: {muted}; }}
-            QLabel.portItem {{ font-size: 12px; color: {t['text']}; }}
+            QLabel {{ color: {text_color}; background: transparent; border: none; }}
+            QLabel#cardTitle {{ font-size: {fs + 2}px; font-weight: bold; color: {title_color}; }}
+            QLabel#cardCount {{ font-size: {fs - 1}px; color: {count_color}; }}
+            QLabel#emptyLabel {{ font-size: {fs}px; color: {muted_color}; }}
+            QLabel.portItem {{ font-size: {fs}px; color: {text_color}; }}
             QFrame#cardLine {{ background: {line}; border: none; }}
             QSlider {{ background: transparent; }}
             QSlider::groove:horizontal {{
@@ -386,7 +428,7 @@ class CardWindow(QWidget):
             }}
             QSlider::handle:horizontal {{
                 width: 10px; height: 10px; margin: -3px 0;
-                background: {count}; border-radius: 5px;
+                background: {count_color}; border-radius: 5px;
             }}
         """
         self.setStyleSheet(
@@ -410,9 +452,19 @@ class CardWindow(QWidget):
         )
         self._notify_colors = t
 
+        # 卡片宽度（运行时生效）
+        try:
+            width = int(cfg.card_width) if cfg else CARD_WIDTH
+        except (TypeError, ValueError):
+            width = CARD_WIDTH
+        self._card_width = max(240, min(480, width))
+        self.setFixedWidth(self._card_width)
+
         # 主题/圆角变化需重建现有行（避免旧样式残留）
         if self._last_ports:
             self.update_ports(self._last_ports, self._last_details, force=True)
+        else:
+            self._shrink()
 
     def _on_alpha_changed(self, value):
         """滑条拖动：实时更新背景透明度并持久化。"""
@@ -464,6 +516,7 @@ class CardWindow(QWidget):
                     parent=self._panel,
                     style_normal=self._row_normal_qss,
                     style_selected=self._row_selected_qss,
+                    font_size=self._font_size,
                 )
                 row.edit_requested.connect(self._edit_alias)
                 row.clicked.connect(self._on_row_clicked)
@@ -514,6 +567,7 @@ class CardWindow(QWidget):
             lifetime_ms,
             self._panel,
             colors=self._notify_colors,
+            font_size=self._font_size,
         )
         item.closed.connect(self._on_notification_closed)
         self._notify_layout.addWidget(item)
@@ -542,4 +596,4 @@ class CardWindow(QWidget):
         self.layout().activate()
         target = self.sizeHint().height()
         if self.height() != target:
-            self.resize(CARD_WIDTH, target)
+            self.resize(self._card_width, target)

@@ -7,20 +7,25 @@
 
 import themes
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from card_window import FONT_SIZE_MIN, FONT_SIZE_MAX
 
 
 def _index_of(keys, name):
@@ -87,10 +92,95 @@ class SettingsDialog(QDialog):
         self._update_radius_label(self._radius_slider.value())
         form.addRow("卡片圆角", radius_row)
 
+        # 字体（可输入任意字体名，跟随系统为空）
+        self._font_combo = QComboBox()
+        self._font_combo.setEditable(True)
+        self._font_combo.addItem("跟随系统", "")
+        for fam in QFontDatabase.families():
+            self._font_combo.addItem(fam, fam)
+        idx = self._font_combo.findData(self._config.font_family)
+        self._font_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._font_combo.currentIndexChanged.connect(self._on_font_selected)
+        self._font_combo.editTextChanged.connect(self._on_font_edited)
+        form.addRow("字体", self._font_combo)
+
+        self._font_size_spin = QSpinBox()
+        self._font_size_spin.setRange(FONT_SIZE_MIN, FONT_SIZE_MAX)
+        self._font_size_spin.setValue(self._config.font_size)
+        self._font_size_spin.valueChanged.connect(
+            lambda v: (self._config.set("font_size", v), self._on_preview())
+        )
+        form.addRow("字号", self._font_size_spin)
+
+        # 字体颜色：选色 + 跟随主题
+        color_row = QHBoxLayout()
+        self._color_btn = QPushButton()
+        self._color_btn.setFixedSize(44, 22)
+        self._color_btn.setToolTip("自定义字体颜色")
+        self._color_btn.clicked.connect(self._on_pick_color)
+        self._color_reset = QPushButton("跟随主题")
+        self._color_reset.clicked.connect(self._on_reset_color)
+        color_row.addWidget(self._color_btn)
+        color_row.addWidget(self._color_reset)
+        color_row.addStretch(1)
+        self._update_color_swatch()
+        form.addRow("字体颜色", color_row)
+
+        # 卡片宽度
+        self._width_spin = QSpinBox()
+        self._width_spin.setRange(240, 480)
+        self._width_spin.setSuffix(" px")
+        self._width_spin.setValue(self._config.card_width)
+        self._width_spin.valueChanged.connect(
+            lambda v: (self._config.set("card_width", v), self._on_preview())
+        )
+        form.addRow("卡片宽度", self._width_spin)
+
         return page
 
     def _update_radius_label(self, value):
         self._radius_value.setText("直角" if value == 0 else f"{value} px")
+
+    def _update_color_swatch(self):
+        color = self._config.font_color or themes.card_theme(
+            self._config.card_theme
+        )["title"]
+        self._color_btn.setStyleSheet(
+            f"QPushButton {{ background: {color}; border: 1px solid #888; "
+            f"border-radius: 3px; }}"
+        )
+        self._color_btn.setToolTip(
+            f"当前字体颜色：{self._config.font_color or '跟随主题'}"
+        )
+        self._color_reset.setEnabled(bool(self._config.font_color))
+
+    def _on_font_selected(self, index):
+        """从列表选择（含「跟随系统」空值）。"""
+        data = self._font_combo.itemData(index)
+        if data is None:
+            return
+        self._config.set("font_family", data)
+        self._on_preview()
+
+    def _on_font_edited(self, text):
+        """手输自定义字体名。"""
+        self._config.set("font_family", text.strip())
+        self._on_preview()
+
+    def _on_pick_color(self):
+        current = self._config.font_color or themes.card_theme(
+            self._config.card_theme
+        )["title"]
+        color = QColorDialog.getColor(QColor(current), self, "选择字体颜色")
+        if color.isValid():
+            self._config.set("font_color", color.name())
+            self._on_preview()
+            self._update_color_swatch()
+
+    def _on_reset_color(self):
+        self._config.set("font_color", "")
+        self._on_preview()
+        self._update_color_swatch()
 
     def _on_ball_theme(self, name):
         self._config.set("ball_theme", name)

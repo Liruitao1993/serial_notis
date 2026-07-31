@@ -20,6 +20,10 @@ DEFAULTS = {
     "card_theme": "深色",         # 卡片主题（themes.CARD_THEMES）
     "card_style": "卡片",         # 卡片风格（themes.CARD_STYLES）
     "card_radius": 12,            # 卡片圆角 0~24（0=直角）
+    "card_width": 320,            # 卡片宽度 240~480
+    "font_family": "",            # 字体族（空=跟随系统，设置对话框可选）
+    "font_size": 12,              # 正文字号（标题/计数等按比例派生）
+    "font_color": "",             # 字体颜色 #RRGGBB（空=跟随主题）
 }
 
 _CONFIG_FILE = data_file("config.json")

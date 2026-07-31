@@ -39,7 +39,7 @@ Windows device broadcast (WM_DEVICECHANGE 0x0219)
 | `app_config.py` | `AppConfig`: user settings (notify lifetime / auto-show / notify-on-remove), JSON persistence, type coercion |
 | `app_paths.py` | `data_dir()`/`data_file()`: exe-adjacent data directory (frozen-aware) |
 | `autostart.py` | `Autostart`: HKCU Run-key toggle; `build_run_value()` pure helper (exe vs pythonw+main.py) |
-| `settings_dialog.py` | `SettingsDialog`：外观（球/卡片主题、卡片风格、圆角）+ 通知，改动即时生效 |
+| `settings_dialog.py` | `SettingsDialog`：外观（球/卡片主题、卡片风格、圆角、宽度、字体/字号/颜色）+ 通知，改动即时生效；可编辑字体下拉框（选择或手输） |
 | `themes.py` | 外观主题注册表：6 组悬浮球主题、6 组卡片主题、3 种卡片风格；`resolve_radius()` 按风格解析圆角 |
 | `tools/make_icon.py` | Generates `assets/icon.ico` (ball + 「串」, ICO-embedded PNG, no deps) |
 | `tests/` | pytest suite (31 tests) — pure logic, offscreen Qt |
@@ -78,7 +78,7 @@ Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check g
 - **Module-level constants** in UPPER_SNAKE: `POLL_INTERVAL_MS`, `DEVICE_CHANGE_DELAY_MS`, `NOTIFY_LIFETIME_MS`, `ALPHA_MIN/MAX/DEFAULT`.
 - **Qt signals** as class attributes with Chinese payload comments: `port_added = Signal(str, str)` / `refresh_requested = Signal()` / `edit_requested = Signal(str)`. Request-style naming (`xxx_requested`) for outbound "please do X" signals; wiring always lives in `main.py`, never inside widgets.
 - **Error handling**: swallow-and-degrade, never crash the GUI. File I/O: `except (OSError, ValueError)` then **log via `logger.exception(...)`** (don't silently pass). Native/OS paths: `except OSError`.
-- **Config-driven behavior**: user-tunable values go through `AppConfig` (see `DEFAULTS`), read at event time in `main.py` so changes apply live; don't hardcode new timings. Appearance keys: `ball_theme` / `card_theme` / `card_style` / `card_radius`. **Adding a theme** = one entry in `themes.BALL_THEMES`/`CARD_THEMES`/`CARD_STYLES` (all keys required — enforced by `tests/test_themes.py`).
+- **Config-driven behavior**: user-tunable values go through `AppConfig` (see `DEFAULTS`), read at event time in `main.py` so changes apply live; don't hardcode new timings. Appearance keys: `ball_theme` / `card_theme` / `card_style` / `card_radius` / `card_width` / `font_family` (empty=system) / `font_size` (8–18, title/count derive ±2/-1) / `font_color` (empty=theme). **Adding a theme** = one entry in `themes.BALL_THEMES`/`CARD_THEMES`/`CARD_STYLES` (all keys required — enforced by `tests/test_themes.py`). Font family propagates via `setFont()` (children inherit); QSS only overrides derived sizes.
 - **Widget styling** via `setObjectName(...)` + QSS strings (`#cardPanel`, `#notifyItem`); animation via `QPropertyAnimation` with `_get_/_set_` properties.
 - **Deferred layout work** after `deleteLater()` via `QTimer.singleShot(0, ...)`.
 - **Natural COM-port ordering**: `CardWindow._port_sort_key` sorts numeric suffixes numerically (`COM10` after `COM2`); reuse for any port ordering.
@@ -95,7 +95,7 @@ Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check g
 
 ## Testing & QA
 
-- **pytest suite in `tests/`** (41 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter, `AliasStore` persistence, `AppConfig` coercion, `CardWindow` rebuild cache + force + sort, theme registry completeness/radius/applied-QSS/dialog instant-apply, `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
+- **pytest suite in `tests/`** (45 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter, `AliasStore` persistence, `AppConfig` coercion, `CardWindow` rebuild cache + force + sort, theme registry completeness/radius/applied-QSS/dialog instant-apply/typography (font family/size/color/width), `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
 - Fixtures: `tests/conftest.py` forces `QT_QPA_PLATFORM=offscreen` before importing Qt.
 - Test style: inject snapshots / patch `list_ports.comports` — never touch real hardware or the real registry.
 - Manual verification for GUI-only behavior: `python main.py`, plug/unplug a USB serial device, confirm card/ball/notifications, aliases + settings persist across restart, second instance is blocked, tray settings/autostart work.
