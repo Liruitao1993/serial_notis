@@ -95,8 +95,8 @@ class NotificationItem(QFrame):
         self._fade_in.setEndValue(1.0)
         self._fade_in.start()
 
-        # 20 秒后淡出销毁
-        QTimer.singleShot(NOTIFY_LIFETIME_MS, self._fade_out_and_close)
+        # 20 秒后淡出销毁（时长可配置）
+        QTimer.singleShot(lifetime_ms, self._fade_out_and_close)
 
     def _fade_out_and_close(self):
         self._fade_out = QPropertyAnimation(self._effect, b"opacity", self)
@@ -131,7 +131,7 @@ class PortRow(QFrame):
         QLabel { background: transparent; border: none; }
     """
 
-    def __init__(self, device, desc, alias, parent=None):
+    def __init__(self, device, desc, alias, info=None, parent=None):
         super().__init__(parent)
         self.device = device
         self._selected = False
@@ -153,11 +153,19 @@ class PortRow(QFrame):
             info_label.setStyleSheet("font-size: 11px; color: rgba(255,255,255,130);")
         info_label.setWordWrap(False)
         layout.addWidget(info_label, 1)
-        # 完整信息放 tooltip
-        tip = f"{device}  {desc}" if desc else device
+        # 完整信息放 tooltip（含 VID/PID 与制造商，帮助区分 CH340/FTDI/CP210x）
+        lines = [f"{device}  {desc}" if desc else device]
         if alias:
-            tip += f"\n备注：{alias}"
-        self.setToolTip(tip)
+            lines.append(f"备注：{alias}")
+        if info is not None:
+            parts = []
+            if info.vidpid:
+                parts.append(f"VID:PID {info.vidpid}")
+            if info.manufacturer:
+                parts.append(f"制造商：{info.manufacturer}")
+            if parts:
+                lines.append(" · ".join(parts))
+        self.setToolTip("\n".join(lines))
 
         edit_btn = QPushButton("\u270e")  # ✎
         edit_btn.setFixedSize(20, 20)
@@ -331,12 +339,15 @@ class CardWindow(QWidget):
 
     # ---------- 串口列表 ----------
 
-    def update_ports(self, ports):
-        """刷新当前串口列表。ports: {device: description}"""
+    def update_ports(self, ports, details=None, force=False):
+        """刷新当前串口列表。ports: {device: description}；details 可选完整信息。
+
+        force=True 时跳过内容指纹缓存强制重建（修复界面叠影）。
+        """
         signature = tuple(
             sorted((d, ports[d], self._alias_store.get(d)) for d in ports)
         )
-        if signature == self._ports_signature:
+        if not force and signature == self._ports_signature:
             # 内容完全一致，不重建不重绘
             return
         self._ports_signature = signature
@@ -361,7 +372,13 @@ class CardWindow(QWidget):
                 self._selected_device = None
             for device in sorted(ports, key=self._port_sort_key):
                 desc = ports[device].replace(f"({device})", "").strip()
-                row = PortRow(device, desc, self._alias_store.get(device), self._panel)
+                row = PortRow(
+                    device,
+                    desc,
+                    self._alias_store.get(device),
+                    info=(details or {}).get(device),
+                    parent=self._panel,
+                )
                 row.edit_requested.connect(self._edit_alias)
                 row.clicked.connect(self._on_row_clicked)
                 row.set_selected(device == self._selected_device)
@@ -401,9 +418,9 @@ class CardWindow(QWidget):
 
     # ---------- 通知 ----------
 
-    def add_notification(self, device, desc, added):
+    def add_notification(self, device, desc, added, lifetime_ms=NOTIFY_LIFETIME_MS):
         alias = self._alias_store.get(device)
-        item = NotificationItem(device, desc, added, alias, self._panel)
+        item = NotificationItem(device, desc, added, alias, lifetime_ms, self._panel)
         item.closed.connect(self._on_notification_closed)
         self._notify_layout.addWidget(item)
         self._shrink()

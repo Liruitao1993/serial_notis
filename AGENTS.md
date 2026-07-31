@@ -10,73 +10,91 @@ Plain PySide6 app — **no QMainWindow**. Four top-level objects are constructed
 
 ```
 Windows device broadcast (WM_DEVICECHANGE 0x0219)
-  → FloatBall.nativeEvent (float_ball.py)          — only place Windows APIs are touched
-  → SerialMonitor.schedule_refresh()               — QTimer.singleShot(200ms) waits for driver enumeration
-  → SerialMonitor.refresh()                        — diffs {device: description} snapshot vs pyserial list_ports.comports()
+  → SerialMonitor.event_filter (serial_monitor.py, QAbstractNativeEventFilter)
+  → SerialMonitor.schedule_refresh()               — 200ms single-shot timer, coalesces bursts
+  → SerialMonitor.refresh()                        — diffs {device: PortInfo} snapshot vs pyserial list_ports.comports()
   → Signal port_added / port_removed(str device, str desc)
-  → main.py slots: card.update_ports() + card.add_notification() + ball.set_port_count() + ball.flash()
+  → main.py slots: card.update_ports(ports, details) + card.add_notification(...) + ball.set_port_count() + ball.flash()
   → card auto-shows via ball.show_card() when hidden
 ```
 
-- **Fallback polling**: `SerialMonitor` also runs a 1s `QTimer` (`POLL_INTERVAL_MS = 1000`) calling `refresh()` — device-change detection is not exclusively event-driven.
-- **Manual refresh**: card refresh button → `CardWindow.refresh_requested` signal → `main.on_refresh` → `monitor.refresh()` + forced list rebuild (fixes ghost rows).
-- **Persistence**: `AliasStore` keeps `{COM口: 备注名}` in `port_aliases.json`, written immediately on every edit, loaded at startup. When frozen (`sys.frozen`), the file lives next to the exe (`dirname(sys.executable)`); otherwise next to the script. PyInstaller one-file mode makes `__file__` unreliable — always use `sys.executable` for data-file paths.
-- **Styling**: translucency is **simulated** via `Qt.WA_TranslucentBackground` + QSS `rgba(...)` backgrounds with a user alpha slider (persisted via `QSettings`). The real DWM acrylic wrapper exists but is unwired — see Important Files.
+- **Event capture is owned by `SerialMonitor`** (composed `_DeviceChangeFilter`), not by any widget — the monitor works even if the ball is removed. Filter is installed via `app.installNativeEventFilter(monitor.event_filter)`.
+- **Fallback polling**: `SerialMonitor` also runs a 1s `QTimer` (`POLL_INTERVAL_MS = 1000`) calling `refresh()` — detection is not exclusively event-driven.
+- **Enumeration failure safety**: `_snapshot()` catches exceptions, logs, returns `None`; `refresh()` then keeps the old state — no false removals, no crash.
+- **Manual refresh**: card refresh button → `CardWindow.refresh_requested` → `main.on_refresh` → `monitor.refresh()` + `update_ports(..., force=True)` (bypasses the content-signature cache and rebuilds rows — fixes ghost rows).
+- **Persistence**: `AliasStore` keeps `{COM口: 备注名}` in `port_aliases.json`; `AppConfig` keeps user settings in `config.json`; both write immediately on change, load at startup, and live next to the exe (`app_paths.data_dir()` — `dirname(sys.executable)` when frozen; PyInstaller one-file makes `__file__` unreliable, always use `sys.executable`).
+- **Logging**: rotating `app.log` (1MB) next to the exe; `sys.excepthook` logs unhandled exceptions and shows a message box. Module loggers use `logging.getLogger(__name__)`.
+- **Single instance**: `QLockFile` in the temp dir; a second launch shows a message and exits.
+- **Styling**: translucency is **simulated** via `Qt.WA_TranslucentBackground` + QSS `rgba(...)` backgrounds with a user alpha slider (persisted via `QSettings`). No DWM/acrylic dependency.
 
 ## Key Directories
 
 | Path | Purpose |
 |---|---|
-| `main.py` | Entry point: object construction, all signal wiring, tray icon + menu |
-| `card_window.py` | `CardWindow` (translucent port list), `PortRow`, `NotificationItem` (auto-fade 20s) |
-| `float_ball.py` | `FloatBall`: 56px draggable ball, paint/flash animation, `WM_DEVICECHANGE` hook |
-| `serial_monitor.py` | `SerialMonitor` (QObject): port enumeration + diff, plug/unplug signals |
+| `main.py` | Entry point: object construction, all signal wiring, tray menu (显示/设置/开机自启/退出), logging, single-instance lock |
+| `card_window.py` | `CardWindow` (translucent port list), `PortRow`, `NotificationItem` (auto-fade, configurable lifetime) |
+| `float_ball.py` | `FloatBall`: 56px draggable ball, paint/flash animation (no OS-event duties) |
+| `serial_monitor.py` | `SerialMonitor` (QObject): port enumeration + diff, `PortInfo` dataclass, `_DeviceChangeFilter` (native event capture) |
 | `alias_store.py` | `AliasStore`: JSON persistence of port aliases |
-| `acrylic.py` | **Dead code** — DWM acrylic ctypes wrapper, imported by nothing; do not extend, consider deleting |
-| `.spec-workflow/` | Spec-driven development config: templates for product/tech/structure steering docs and requirements/design/tasks specs; `user-templates/` overrides defaults (same filename wins); empty `steering/ specs/ approvals/ archive/` dirs |
-| `.opencode/` | opencode plugin SDK scaffolding (`@opencode-ai/plugin`), ignore |
+| `app_config.py` | `AppConfig`: user settings (notify lifetime / auto-show / notify-on-remove), JSON persistence, type coercion |
+| `app_paths.py` | `data_dir()`/`data_file()`: exe-adjacent data directory (frozen-aware) |
+| `autostart.py` | `Autostart`: HKCU Run-key toggle; `build_run_value()` pure helper (exe vs pythonw+main.py) |
+| `settings_dialog.py` | `SettingsDialog`: 通知停留时间 / 自动弹卡 / 拔出提示 |
+| `tools/make_icon.py` | Generates `assets/icon.ico` (ball + 「串」, ICO-embedded PNG, no deps) |
+| `tests/` | pytest suite (31 tests) — pure logic, offscreen Qt |
+| `.spec-workflow/` | Spec-driven development config: templates for steering docs and requirements/design/tasks specs; `user-templates/` overrides defaults; empty `steering/ specs/ approvals/ archive/` dirs |
+| `.opencode/` | opencode plugin SDK scaffolding, ignore |
 | `dist/`, `build/` | PyInstaller output; regenerated, never edit |
 
 ## Development Commands
 
 ```powershell
-# install
+# install runtime deps
 pip install -r requirements.txt          # PySide6>=6.6, pyserial>=3.5
 
-# run (Windows, GUI app — no console output expected)
+# install dev deps (tests)
+pip install -r requirements-dev.txt      # adds pytest>=8
+
+# run tests (headless, offscreen Qt — no display needed)
+python -m pytest tests/ -q
+
+# run app (Windows GUI)
 python main.py
 
-# build single-file exe
-pyinstaller 串口提示助手.spec              # --onefile --windowed, console=False
+# regenerate icon (only when changing the design)
+python tools/make_icon.py
+
+# build single-file exe (icon from assets/icon.ico, console=False)
+pyinstaller 串口提示助手.spec
 ```
 
-Runtime: **Python 3.13, Windows only**. No Python lockfile, no git repo in the workspace, no lint/format config.
+Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check gate (basedpyright strict-mode warnings are expected noise — the project intentionally has no type hints).
 
 ## Code Conventions & Common Patterns
 
-- **Chinese docstrings** on every module, class, and public method; inline comments in Chinese. New code should match.
-- **No type hints** on public APIs — signatures like `def get(self, device)`; payload types documented in docstrings (e.g. `ports: {device: description}`).
-- **Module-level constants** in UPPER_SNAKE for all magic numbers: `POLL_INTERVAL_MS`, `DEVICE_CHANGE_DELAY_MS`, `FADE_OUT_MS`, `ALPHA_MIN/MAX/DEFAULT`.
-- **Qt signals** declared as class attributes with payload comments in Chinese:
-  `port_added = Signal(str, str)` / `refresh_requested = Signal()` / `closed = Signal(object)  # 携带自身,供卡片收缩/自动隐藏`.
-  Request-style naming (`xxx_requested`) for outbound "please do X" signals; wiring always lives in `main.py`, never inside widgets.
-- **Error handling**: swallow-and-degrade, never crash the GUI. `except (OSError, ValueError): pass` on file I/O; `except Exception: return False` in native wrappers.
-- **Widget styling** via `setObjectName(...)` + QSS stylesheet strings (`#cardPanel`, `#notifyItem`), applied in `_apply_style()`; animation via `QPropertyAnimation` with `_get_/_set_` flash properties.
-- **Private members** prefixed `_`; read-only access via `@property` (e.g. `SerialMonitor.ports` returns a dict copy).
-- **Deferred layout work** after `deleteLater()` with `QTimer.singleShot(0, ...)`.
-- **Natural COM-port ordering**: `_port_sort_key` sorts numeric suffixes numerically (`COM10` after `COM2`); reuse it for any new port ordering.
-- Single-window app: no signals with object args cross module boundaries except `NotificationItem.closed` (object payload).
+- **Chinese docstrings** on every module, class, and public method; inline comments in Chinese.
+- **No type hints** on public APIs except dataclasses (`PortInfo`) and a few pure helpers where the analyzer needs them; payload types documented in docstrings (e.g. `ports: {device: description}`).
+- **Module-level constants** in UPPER_SNAKE: `POLL_INTERVAL_MS`, `DEVICE_CHANGE_DELAY_MS`, `NOTIFY_LIFETIME_MS`, `ALPHA_MIN/MAX/DEFAULT`.
+- **Qt signals** as class attributes with Chinese payload comments: `port_added = Signal(str, str)` / `refresh_requested = Signal()` / `edit_requested = Signal(str)`. Request-style naming (`xxx_requested`) for outbound "please do X" signals; wiring always lives in `main.py`, never inside widgets.
+- **Error handling**: swallow-and-degrade, never crash the GUI. File I/O: `except (OSError, ValueError)` then **log via `logger.exception(...)`** (don't silently pass). Native/OS paths: `except OSError`.
+- **Config-driven behavior**: user-tunable values go through `AppConfig` (see `DEFAULTS`), read at event time in `main.py` so changes apply live; don't hardcode new timings.
+- **Widget styling** via `setObjectName(...)` + QSS strings (`#cardPanel`, `#notifyItem`); animation via `QPropertyAnimation` with `_get_/_set_` properties.
+- **Deferred layout work** after `deleteLater()` via `QTimer.singleShot(0, ...)`.
+- **Natural COM-port ordering**: `CardWindow._port_sort_key` sorts numeric suffixes numerically (`COM10` after `COM2`); reuse for any port ordering.
+- Debounce OS event bursts with a **single-shot QTimer + `start()`** (restart semantics), not piled-up `singleShot`s.
 
 ## Important Files
 
 - `main.py` — the only wiring point; new cross-component connections go here
-- `串口提示助手.spec` — PyInstaller one-file spec, `console=False`, no hidden imports/datas
-- `port_aliases.json` — runtime data (root + dist copies); not bundled by the spec
-- `acrylic.py` — unwired DWM acrylic implementation; `CardWindow` deliberately uses QSS translucency instead. Do not "reconnect" it without checking why the QSS approach was chosen (works on more Windows versions, no undocumented APIs).
-- `.spec-workflow/templates/` — expected workflow: requirements (numbered IDs) → design → tasks docs written **before** implementation; task templates embed agent prompts. Follow this when the user asks for spec-driven work.
+- `串口提示助手.spec` — PyInstaller one-file spec, `console=False`, `icon='assets/icon.ico'`, no hidden imports/datas
+- `serial_monitor.py` — `PortInfo` (device/desc/vid/pid/manufacturer/serial_number/hwid) is the rich data model; `ports` (desc map) for list/count, `details` (PortInfo map) for tooltips
+- `port_aliases.json` / `config.json` — runtime data next to the exe; not bundled by the spec (created at runtime)
+- `.spec-workflow/templates/` — expected workflow: requirements (numbered IDs) → design → tasks docs written **before** implementation; task templates embed agent prompts
 
 ## Testing & QA
 
-- **No tests, no test framework, no CI.** Verification is manual: `python main.py`, plug/unplug a USB serial device (or use `serial_monitor.refresh()`), confirm card list updates, notifications appear/fade, aliases persist across restart, tray quit works.
-- After a change, smoke-test the affected path by running the app — don't invent a test harness unless asked.
-- Build verification: `pyinstaller 串口提示助手.spec`, run `dist/串口提示助手.exe`, check `port_aliases.json` is created next to the exe.
+- **pytest suite in `tests/`** (31 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter, `AliasStore` persistence, `AppConfig` coercion, `CardWindow` rebuild cache + force + sort, `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
+- Fixtures: `tests/conftest.py` forces `QT_QPA_PLATFORM=offscreen` before importing Qt.
+- Test style: inject snapshots / patch `list_ports.comports` — never touch real hardware or the real registry.
+- Manual verification for GUI-only behavior: `python main.py`, plug/unplug a USB serial device, confirm card/ball/notifications, aliases + settings persist across restart, second instance is blocked, tray settings/autostart work.
+- Build verification: `pyinstaller 串口提示助手.spec`, run `dist/串口提示助手.exe`, confirm `port_aliases.json`/`config.json`/`app.log` appear next to the exe.

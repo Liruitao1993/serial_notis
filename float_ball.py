@@ -13,16 +13,13 @@ DRAG_THRESHOLD = 4
 # 事件闪烁时长（毫秒）
 FLASH_DURATION_MS = 2000
 
-WM_DEVICECHANGE = 0x0219
-
 
 class FloatBall(QWidget):
     """悬浮球本体。"""
 
-    def __init__(self, card, monitor, parent=None):
+    def __init__(self, card, parent=None):
         super().__init__(parent)
         self._card = card
-        self._monitor = monitor
 
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -161,15 +158,3 @@ class FloatBall(QWidget):
         y = max(screen.top(), min(y, screen.bottom() - card.height()))
         x = max(screen.left(), min(x, screen.right() - card.width()))
         return QPoint(x, y)
-
-    # ---------- 原生事件：设备插拔广播 ----------
-
-    def nativeEvent(self, event_type, message):
-        if event_type == b"windows_generic_MSG":
-            import ctypes.wintypes as wt
-            import ctypes
-
-            msg = ctypes.cast(int(message), ctypes.POINTER(wt.MSG)).contents
-            if msg.message == WM_DEVICECHANGE:
-                self._monitor.schedule_refresh()
-        return super().nativeEvent(event_type, message)

@@ -1,0 +1,192 @@
+# -*- coding: utf-8 -*-
+"""SerialMonitor 核心逻辑测试：diff、失败保护、去抖、事件过滤器。"""
+
+import ctypes
+import ctypes.wintypes as wt
+import logging
+import time
+from types import SimpleNamespace
+
+import pytest
+from PySide6.QtCore import QCoreApplication
+
+from serial_monitor import (
+    PortInfo,
+    SerialMonitor,
+    WM_DEVICECHANGE,
+    _port_info,
+)
+
+
+def make_port(device, desc="", vid=None, pid=None, manufacturer="", hwid=""):
+    return SimpleNamespace(
+        device=device,
+        description=desc,
+        vid=vid,
+        pid=pid,
+        manufacturer=manufacturer,
+        hwid=hwid,
+    )
+
+
+def make_monitor(monkeypatch, snapshots):
+    """用注入的快照序列构造 SerialMonitor（__init__ 消耗第一个）。"""
+    it = iter(snapshots)
+
+    def fake_snapshot():
+        try:
+            return next(it)
+        except StopIteration:
+            raise AssertionError("snapshot 序列耗尽")
+
+    monkeypatch.setattr(SerialMonitor, "_snapshot", staticmethod(fake_snapshot))
+    return SerialMonitor()
+
+
+def pump(ms):
+    """处理 Qt 事件直至定时器触发。"""
+    end = time.time() + ms / 1000
+    while time.time() < end:
+        QCoreApplication.processEvents()
+        time.sleep(0.005)
+
+
+# ---------- 快照比对与信号 ----------
+
+
+def test_refresh_emits_added_and_removed(monkeypatch):
+    a1 = make_port("COM1", "主节点")
+    a2 = make_port("COM2", "从节点")
+    m = make_monitor(
+        monkeypatch,
+        [
+            {"COM1": a1},            # __init__
+            {"COM1": a1, "COM2": a2},  # 插入 COM2
+            {"COM1": a1},            # 拔出 COM2
+        ],
+    )
+    added, removed = [], []
+    m.port_added.connect(lambda d, s: added.append((d, s)))
+    m.port_removed.connect(lambda d, s: removed.append((d, s)))
+
+    m.refresh()
+    assert added == [("COM2", "从节点")]
+
+    m.refresh()
+    assert removed == [("COM2", "从节点")]
+    assert m.ports == {"COM1": "主节点"}
+
+
+def test_refresh_unchanged_no_signals(monkeypatch):
+    a1 = make_port("COM1", "x")
+    m = make_monitor(monkeypatch, [{"COM1": a1}, {"COM1": a1}])
+    added = []
+    m.port_added.connect(lambda d, s: added.append(d))
+    m.refresh()
+    assert added == []
+
+
+# ---------- 枚举失败保护 ----------
+
+
+def test_snapshot_failure_keeps_old_state(monkeypatch, caplog):
+    """枚举抛异常：记日志、保留旧快照、不误报拔出。"""
+    from serial.tools import list_ports
+
+    a1 = make_port("COM1", "主节点")
+    calls = {"n": 0}
+
+    def fake_comports():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [a1]
+        raise OSError("boom")
+
+    monkeypatch.setattr(list_ports, "comports", fake_comports)
+    m = SerialMonitor()  # 第一次成功
+    assert m.ports == {"COM1": "主节点"}
+    removed = []
+    m.port_removed.connect(lambda d, s: removed.append((d, s)))
+
+    with caplog.at_level(logging.ERROR, logger="serial_monitor"):
+        m.refresh()  # 失败：不得误报拔出
+    assert removed == []
+    assert m.ports == {"COM1": "主节点"}
+    assert "枚举串口失败" in caplog.text
+
+
+# ---------- schedule_refresh 去抖合并 ----------
+
+
+def test_schedule_refresh_coalesces(qapp, monkeypatch):
+    a1 = make_port("COM1", "a")
+    a2 = make_port("COM2", "b")
+    m = make_monitor(monkeypatch, [{"COM1": a1}, {"COM1": a1, "COM2": a2}, {"COM1": a1}])
+    added = []
+    m.port_added.connect(lambda d, s: added.append((d, s)))
+
+    # 200ms 内连发两次事件，只应触发一次 refresh
+    m.schedule_refresh()
+    m.schedule_refresh()
+    pump(350)
+    assert added == [("COM2", "b")]
+
+    # 二次确认：不再有多余刷新
+    pump(350)
+    assert added == [("COM2", "b")]
+
+
+# ---------- 事件过滤器 ----------
+
+
+def test_event_filter_forwards_wm_devicechange(qapp, monkeypatch):
+    a1 = make_port("COM1", "a")
+    a2 = make_port("COM2", "b")
+    m = make_monitor(monkeypatch, [{"COM1": a1}, {"COM1": a1, "COM2": a2}])
+    added = []
+    m.port_added.connect(lambda d, s: added.append((d, s)))
+
+    msg = wt.MSG()
+    msg.message = WM_DEVICECHANGE
+    consumed = m.event_filter.nativeEventFilter(
+        b"windows_generic_MSG", int(ctypes.addressof(msg))
+    )
+    assert consumed is False  # 不吞事件
+    pump(350)
+    assert added == [("COM2", "b")]
+
+
+def test_event_filter_ignores_other_messages(qapp, monkeypatch):
+    m = make_monitor(monkeypatch, [{}, {}])
+    msg = wt.MSG()
+    msg.message = 0x0100  # WM_KEYDOWN
+    consumed = m.event_filter.nativeEventFilter(
+        b"windows_generic_MSG", int(ctypes.addressof(msg))
+    )
+    assert consumed is False
+
+
+# ---------- PortInfo / _port_info ----------
+
+
+def test_vidpid_format():
+    info = PortInfo("COM1", vid=0x1A86, pid=0x7523)
+    assert info.vidpid == "1A86:7523"
+    assert PortInfo("COM1").vidpid == ""
+
+
+def test_port_info_extraction_defaults():
+    port = make_port("COM9", "描述", 0x1A86, 0x7523, "CH340", "USB\\VID_1A86")
+    info = _port_info(port)
+    assert (info.device, info.description) == ("COM9", "描述")
+    assert (info.vid, info.pid) == (0x1A86, 0x7523)
+    assert info.manufacturer == "CH340"
+    assert info.vidpid == "1A86:7523"
+
+
+def test_port_info_missing_fields():
+    port = SimpleNamespace(device="COM3", description=None)  # 无 vid/pid 等属性
+    info = _port_info(port)
+    assert info.description == ""
+    assert info.vid is None and info.vidpid == ""
+    assert info.manufacturer == "" and info.hwid == ""

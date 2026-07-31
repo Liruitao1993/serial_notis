@@ -6,22 +6,13 @@
 """
 
 import json
-import os
-import sys
+import logging
 
+from app_paths import data_file
 
-def _app_dir():
-    """数据文件存放目录：打包成 exe 后取 exe 所在目录，否则取脚本目录。
+logger = logging.getLogger(__name__)
 
-    PyInstaller 单文件模式下 __file__ 指向临时解压目录，重启即丢，
-    必须用 sys.executable 定位。
-    """
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-_ALIAS_FILE = os.path.join(_app_dir(), "port_aliases.json")
+_ALIAS_FILE = data_file("port_aliases.json")
 
 
 class AliasStore:
@@ -37,8 +28,10 @@ class AliasStore:
                 data = json.load(f)
             if isinstance(data, dict):
                 return {str(k): str(v) for k, v in data.items()}
-        except (OSError, ValueError):
+        except FileNotFoundError:
             pass
+        except (OSError, ValueError):
+            logger.exception("读取备注文件失败: %s", self._path)
         return {}
 
     def _save(self):
@@ -46,7 +39,7 @@ class AliasStore:
             with open(self._path, "w", encoding="utf-8") as f:
                 json.dump(self._aliases, f, ensure_ascii=False, indent=2)
         except OSError:
-            pass
+            logger.exception("保存备注文件失败: %s", self._path)
 
     def get(self, device):
         """取备注名，无则返回空串。"""
