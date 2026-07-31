@@ -16,6 +16,10 @@ DEFAULTS = {
     "notify_lifetime_ms": 20000,  # 通知条停留时长（毫秒）
     "auto_show_card": True,       # 串口事件时自动弹出卡片
     "notify_on_remove": True,     # 拔出串口时也显示通知
+    "ball_theme": "深空蓝",       # 悬浮球主题（themes.BALL_THEMES）
+    "card_theme": "深色",         # 卡片主题（themes.CARD_THEMES）
+    "card_style": "卡片",         # 卡片风格（themes.CARD_STYLES）
+    "card_radius": 12,            # 卡片圆角 0~24（0=直角）
 }
 
 _CONFIG_FILE = data_file("config.json")

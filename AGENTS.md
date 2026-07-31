@@ -25,7 +25,7 @@ Windows device broadcast (WM_DEVICECHANGE 0x0219)
 - **Persistence**: `AliasStore` keeps `{COM口: 备注名}` in `port_aliases.json`; `AppConfig` keeps user settings in `config.json`; both write immediately on change, load at startup, and live next to the exe (`app_paths.data_dir()` — `dirname(sys.executable)` when frozen; PyInstaller one-file makes `__file__` unreliable, always use `sys.executable`).
 - **Logging**: rotating `app.log` (1MB) next to the exe; `sys.excepthook` logs unhandled exceptions and shows a message box. Module loggers use `logging.getLogger(__name__)`.
 - **Single instance**: `QLockFile` in the temp dir; a second launch shows a message and exits.
-- **Styling**: translucency is **simulated** via `Qt.WA_TranslucentBackground` + QSS `rgba(...)` backgrounds with a user alpha slider (persisted via `QSettings`). No DWM/acrylic dependency.
+- **Styling**: theme system in `themes.py` — ball (gradient/text/flash colors) and card (panel/border/text/row/notification palettes) are independently selectable, plus card style (卡片/气泡/极简) and radius 0–24 (0=直角). CardWindow QSS and FloatBall painting read the config at `apply_theme()` time; the settings dialog applies changes instantly. Translucency stays simulated (`WA_TranslucentBackground` + QSS rgba), no DWM dependency.
 
 ## Key Directories
 
@@ -39,7 +39,8 @@ Windows device broadcast (WM_DEVICECHANGE 0x0219)
 | `app_config.py` | `AppConfig`: user settings (notify lifetime / auto-show / notify-on-remove), JSON persistence, type coercion |
 | `app_paths.py` | `data_dir()`/`data_file()`: exe-adjacent data directory (frozen-aware) |
 | `autostart.py` | `Autostart`: HKCU Run-key toggle; `build_run_value()` pure helper (exe vs pythonw+main.py) |
-| `settings_dialog.py` | `SettingsDialog`: 通知停留时间 / 自动弹卡 / 拔出提示 |
+| `settings_dialog.py` | `SettingsDialog`：外观（球/卡片主题、卡片风格、圆角）+ 通知，改动即时生效 |
+| `themes.py` | 外观主题注册表：6 组悬浮球主题、6 组卡片主题、3 种卡片风格；`resolve_radius()` 按风格解析圆角 |
 | `tools/make_icon.py` | Generates `assets/icon.ico` (ball + 「串」, ICO-embedded PNG, no deps) |
 | `tests/` | pytest suite (31 tests) — pure logic, offscreen Qt |
 | `.spec-workflow/` | Spec-driven development config: templates for steering docs and requirements/design/tasks specs; `user-templates/` overrides defaults; empty `steering/ specs/ approvals/ archive/` dirs |
@@ -77,7 +78,7 @@ Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check g
 - **Module-level constants** in UPPER_SNAKE: `POLL_INTERVAL_MS`, `DEVICE_CHANGE_DELAY_MS`, `NOTIFY_LIFETIME_MS`, `ALPHA_MIN/MAX/DEFAULT`.
 - **Qt signals** as class attributes with Chinese payload comments: `port_added = Signal(str, str)` / `refresh_requested = Signal()` / `edit_requested = Signal(str)`. Request-style naming (`xxx_requested`) for outbound "please do X" signals; wiring always lives in `main.py`, never inside widgets.
 - **Error handling**: swallow-and-degrade, never crash the GUI. File I/O: `except (OSError, ValueError)` then **log via `logger.exception(...)`** (don't silently pass). Native/OS paths: `except OSError`.
-- **Config-driven behavior**: user-tunable values go through `AppConfig` (see `DEFAULTS`), read at event time in `main.py` so changes apply live; don't hardcode new timings.
+- **Config-driven behavior**: user-tunable values go through `AppConfig` (see `DEFAULTS`), read at event time in `main.py` so changes apply live; don't hardcode new timings. Appearance keys: `ball_theme` / `card_theme` / `card_style` / `card_radius`. **Adding a theme** = one entry in `themes.BALL_THEMES`/`CARD_THEMES`/`CARD_STYLES` (all keys required — enforced by `tests/test_themes.py`).
 - **Widget styling** via `setObjectName(...)` + QSS strings (`#cardPanel`, `#notifyItem`); animation via `QPropertyAnimation` with `_get_/_set_` properties.
 - **Deferred layout work** after `deleteLater()` via `QTimer.singleShot(0, ...)`.
 - **Natural COM-port ordering**: `CardWindow._port_sort_key` sorts numeric suffixes numerically (`COM10` after `COM2`); reuse for any port ordering.
@@ -88,12 +89,13 @@ Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check g
 - `main.py` — the only wiring point; new cross-component connections go here
 - `串口提示助手.spec` — PyInstaller one-file spec, `console=False`, `icon='assets/icon.ico'`, no hidden imports/datas
 - `serial_monitor.py` — `PortInfo` (device/desc/vid/pid/manufacturer/serial_number/hwid) is the rich data model; `ports` (desc map) for list/count, `details` (PortInfo map) for tooltips
+- `themes.py` — appearance registry; `CardWindow.apply_theme()` and `FloatBall.apply_theme()` are the single points that restyle from config (preview callback in `main.on_preview`)
 - `port_aliases.json` / `config.json` — runtime data next to the exe; not bundled by the spec (created at runtime)
 - `.spec-workflow/templates/` — expected workflow: requirements (numbered IDs) → design → tasks docs written **before** implementation; task templates embed agent prompts
 
 ## Testing & QA
 
-- **pytest suite in `tests/`** (31 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter, `AliasStore` persistence, `AppConfig` coercion, `CardWindow` rebuild cache + force + sort, `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
+- **pytest suite in `tests/`** (41 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter, `AliasStore` persistence, `AppConfig` coercion, `CardWindow` rebuild cache + force + sort, theme registry completeness/radius/applied-QSS/dialog instant-apply, `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
 - Fixtures: `tests/conftest.py` forces `QT_QPA_PLATFORM=offscreen` before importing Qt.
 - Test style: inject snapshots / patch `list_ports.comports` — never touch real hardware or the real registry.
 - Manual verification for GUI-only behavior: `python main.py`, plug/unplug a USB serial device, confirm card/ball/notifications, aliases + settings persist across restart, second instance is blocked, tray settings/autostart work.

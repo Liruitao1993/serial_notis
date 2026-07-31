@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import themes
+
 # 通知条存活时间（毫秒）
 NOTIFY_LIFETIME_MS = 20000
 # 淡入 / 淡出时长（毫秒）
@@ -37,21 +39,35 @@ ALPHA_DEFAULT = 160
 
 
 class NotificationItem(QFrame):
-    """单条插拔通知：插入浅绿、拔出红色，20 秒后自动淡出销毁。"""
+    """单条插拔通知：插入浅绿、拔出红色，到点后自动淡出销毁。"""
 
     closed = Signal(object)  # 携带自身，供卡片收缩/自动隐藏
 
-    def __init__(self, device, desc, added, alias="", parent=None):
+    # 默认配色（与深色主题一致），主题色由 colors 参数注入
+    _DEFAULT_COLORS = {
+        "added": ("rgba(120,220,140,90)", "rgba(120,220,140,140)", "#FFFFFF"),
+        "removed": ("rgba(230,80,80,90)", "rgba(230,80,80,150)", "#FFFFFF"),
+    }
+
+    def __init__(
+        self,
+        device,
+        desc,
+        added,
+        alias="",
+        lifetime_ms=NOTIFY_LIFETIME_MS,
+        parent=None,
+        colors=None,
+    ):
         super().__init__(parent)
         self.setObjectName("notifyItem")
+        pal = colors or {}
         if added:
-            bg = "rgba(120, 220, 140, 90)"
-            border = "rgba(120, 220, 140, 140)"
+            bg, border, text_color = pal.get("notify_added", self._DEFAULT_COLORS["added"])
             title = "新增串口"
             icon = "\u2795"  # ＋
         else:
-            bg = "rgba(230, 80, 80, 90)"
-            border = "rgba(230, 80, 80, 150)"
+            bg, border, text_color = pal.get("notify_removed", self._DEFAULT_COLORS["removed"])
             title = "已拔出"
             icon = "\u2716"  # ✖
         self.setStyleSheet(
@@ -61,7 +77,7 @@ class NotificationItem(QFrame):
                 border: 1px solid {border};
                 border-radius: 8px;
             }}
-            QLabel {{ background: transparent; border: none; color: white; }}
+            QLabel {{ background: transparent; border: none; color: {text_color}; }}
             """
         )
 
@@ -131,12 +147,14 @@ class PortRow(QFrame):
         QLabel { background: transparent; border: none; }
     """
 
-    def __init__(self, device, desc, alias, info=None, parent=None):
+    def __init__(self, device, desc, alias, info=None, parent=None, style_normal=None, style_selected=None):
         super().__init__(parent)
         self.device = device
         self._selected = False
         self.setObjectName("portRow")
-        self.setStyleSheet(self._STYLE_NORMAL)
+        self._style_normal = style_normal or self._STYLE_NORMAL
+        self._style_selected = style_selected or self._STYLE_SELECTED
+        self.setStyleSheet(self._style_normal)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 2, 2)
         layout.setSpacing(6)
@@ -187,7 +205,7 @@ class PortRow(QFrame):
         if selected == self._selected:
             return
         self._selected = selected
-        self.setStyleSheet(self._STYLE_SELECTED if selected else self._STYLE_NORMAL)
+        self.setStyleSheet(self._style_selected if selected else self._style_normal)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -200,9 +218,10 @@ class CardWindow(QWidget):
 
     refresh_requested = Signal()  # 点击刷新按钮，由外部重新枚举串口
 
-    def __init__(self, alias_store, parent=None):
+    def __init__(self, alias_store, config=None, parent=None):
         super().__init__(parent)
         self._alias_store = alias_store
+        self._config = config
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
@@ -214,6 +233,11 @@ class CardWindow(QWidget):
         self.auto_shown = False
         # 当前串口快照缓存（编辑备注后原地刷新用）
         self._last_ports = {}
+        self._last_details = {}
+        # 主题化行样式 / 通知条配色（apply_theme 时更新）
+        self._row_normal_qss = ""
+        self._row_selected_qss = ""
+        self._notify_colors = {}
         # 备注编辑对话框打开期间禁止自动收回卡片
         self._editing = False
         # 卡片背景透明度（滑条调节，QSettings 持久化）
@@ -298,43 +322,102 @@ class CardWindow(QWidget):
         self._notify_layout.setSpacing(6)
         panel_layout.addLayout(self._notify_layout)
 
-        self._apply_style()
+        self.apply_theme()
 
-    # ---------- 外观 ----------
+    # ---------- 外观（主题） ----------
 
-    def _apply_style(self):
-        common = """
-            QLabel { color: white; background: transparent; border: none; }
-            QLabel#cardTitle { font-size: 14px; font-weight: bold; }
-            QLabel#cardCount { font-size: 11px; color: rgba(255,255,255,170); }
-            QLabel#emptyLabel { font-size: 12px; color: rgba(255,255,255,120); }
-            QLabel.portItem { font-size: 12px; color: rgba(255,255,255,220); }
-            QFrame#cardLine { background: rgba(255,255,255,40); border: none; }
-            QSlider { background: transparent; }
-            QSlider::groove:horizontal {
-                height: 4px; background: rgba(255,255,255,60); border-radius: 2px;
-            }
-            QSlider::sub-page:horizontal {
-                background: rgba(130, 200, 255, 180); border-radius: 2px;
-            }
-            QSlider::handle:horizontal {
+    def _theme(self):
+        if self._config:
+            return themes.card_theme(self._config.card_theme)
+        return themes.CARD_THEMES["深色"]
+
+    def _style(self):
+        if self._config:
+            return themes.card_style(self._config.card_style)
+        return themes.CARD_STYLES["卡片"]
+
+    def apply_theme(self):
+        """按配置重建外观：面板 QSS、行样式、通知条配色。"""
+        t = self._theme()
+        s = self._style()
+        if self._config:
+            radius = themes.resolve_radius(self._config.card_radius, self._config.card_style)
+        else:
+            radius = themes.resolve_radius(12, "卡片")
+
+        def rgba(rgb):
+            return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{rgb[3]})"
+
+        def scaled(rgb, factor):
+            a = min(255, int(rgb[3] * factor))
+            return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{a})"
+
+        border = scaled(t["border"], s["border_alpha"])
+        line = rgba(t["line"])
+        count = rgba(t["count"])
+        muted = rgba(t["muted"])
+
+        panel_rgb = t["panel"]
+        panel_a = self._panel_alpha
+        if s["gradient"] == "light":
+            lighter = tuple(min(255, int(c + (255 - c) * 0.18)) for c in panel_rgb)
+            panel_bg = (
+                f"qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                f"stop:0 rgba({lighter[0]},{lighter[1]},{lighter[2]},{panel_a}), "
+                f"stop:1 rgba({panel_rgb[0]},{panel_rgb[1]},{panel_rgb[2]},{panel_a}))"
+            )
+        else:
+            panel_bg = f"rgba({panel_rgb[0]},{panel_rgb[1]},{panel_rgb[2]},{panel_a})"
+
+        accent = rgba(t["row_selected_border"])
+        common = f"""
+            QLabel {{ color: {t['text']}; background: transparent; border: none; }}
+            QLabel#cardTitle {{ font-size: 14px; font-weight: bold; color: {t['title']}; }}
+            QLabel#cardCount {{ font-size: 11px; color: {count}; }}
+            QLabel#emptyLabel {{ font-size: 12px; color: {muted}; }}
+            QLabel.portItem {{ font-size: 12px; color: {t['text']}; }}
+            QFrame#cardLine {{ background: {line}; border: none; }}
+            QSlider {{ background: transparent; }}
+            QSlider::groove:horizontal {{
+                height: 4px; background: {line}; border-radius: 2px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {accent}; border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
                 width: 10px; height: 10px; margin: -3px 0;
-                background: rgba(255,255,255,230); border-radius: 5px;
-            }
+                background: {count}; border-radius: 5px;
+            }}
         """
-        # 和悬浮球同样的纯半透明方案：不依赖系统模糊，直接透出背面内容
-        panel_bg = (
-            f"background: rgba(40, 44, 52, {self._panel_alpha}); border-radius: 12px;"
-        )
         self.setStyleSheet(
-            f"QFrame#cardPanel {{ {panel_bg} border: 1px solid rgba(255,255,255,30); }}"
+            f"QFrame#cardPanel {{ background: {panel_bg}; border-radius: {radius}px; "
+            f"border: 1px solid {border}; }}"
             + common
         )
+
+        # 行样式：选中态用主题强调色
+        row_radius = max(4, radius - 4)
+        row_selected_bg = rgba(t["row_selected_bg"])
+        row_selected_border = rgba(t["row_selected_border"])
+        self._row_normal_qss = (
+            f"QFrame#portRow {{ background: transparent; border: 1px solid transparent; "
+            f"border-radius: {row_radius}px; }} QLabel {{ background: transparent; border: none; }}"
+        )
+        self._row_selected_qss = (
+            f"QFrame#portRow {{ background: {row_selected_bg}; "
+            f"border: 1px solid {row_selected_border}; border-radius: {row_radius}px; }} "
+            f"QLabel {{ background: transparent; border: none; }}"
+        )
+        self._notify_colors = t
+
+        # 主题/圆角变化需重建现有行（避免旧样式残留）
+        if self._last_ports:
+            self.update_ports(self._last_ports, self._last_details, force=True)
 
     def _on_alpha_changed(self, value):
         """滑条拖动：实时更新背景透明度并持久化。"""
         self._panel_alpha = value
-        self._apply_style()
+        self.apply_theme()
         self._settings.setValue("panel_alpha", value)
 
     # ---------- 串口列表 ----------
@@ -352,6 +435,7 @@ class CardWindow(QWidget):
             return
         self._ports_signature = signature
         self._last_ports = dict(ports)
+        self._last_details = dict(details) if details else {}
         self._rows = []
         while self._port_list_layout.count():
             item = self._port_list_layout.takeAt(0)
@@ -378,6 +462,8 @@ class CardWindow(QWidget):
                     self._alias_store.get(device),
                     info=(details or {}).get(device),
                     parent=self._panel,
+                    style_normal=self._row_normal_qss,
+                    style_selected=self._row_selected_qss,
                 )
                 row.edit_requested.connect(self._edit_alias)
                 row.clicked.connect(self._on_row_clicked)
@@ -420,7 +506,15 @@ class CardWindow(QWidget):
 
     def add_notification(self, device, desc, added, lifetime_ms=NOTIFY_LIFETIME_MS):
         alias = self._alias_store.get(device)
-        item = NotificationItem(device, desc, added, alias, lifetime_ms, self._panel)
+        item = NotificationItem(
+            device,
+            desc,
+            added,
+            alias,
+            lifetime_ms,
+            self._panel,
+            colors=self._notify_colors,
+        )
         item.closed.connect(self._on_notification_closed)
         self._notify_layout.addWidget(item)
         self._shrink()

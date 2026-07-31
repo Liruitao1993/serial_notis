@@ -88,8 +88,8 @@ def main():
     monitor = SerialMonitor()
     app.installNativeEventFilter(monitor.event_filter)
     aliases = AliasStore()
-    card = CardWindow(aliases)
-    ball = FloatBall(card)
+    card = CardWindow(aliases, config)
+    ball = FloatBall(card, config)
 
     # 初始状态
     card.update_ports(monitor.ports, monitor.details)
@@ -135,8 +135,15 @@ def main():
     menu = QMenu()
     show_action = QAction("显示悬浮球", menu)
     show_action.triggered.connect(ball.show)
+    def on_preview():
+        """设置对话框即时预览：重绘卡片与悬浮球。"""
+        card.apply_theme()
+        ball.apply_theme()
+
     settings_action = QAction("设置…", menu)
-    settings_action.triggered.connect(lambda: SettingsDialog(config).exec())
+    settings_action.triggered.connect(
+        lambda: SettingsDialog(config, on_preview=on_preview).exec()
+    )
     autostart = Autostart()
     autostart_action = QAction("开机自启", menu)
     autostart_action.setCheckable(True)

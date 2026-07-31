@@ -8,6 +8,8 @@ from PySide6.QtCore import Property, Qt, QPoint, QPropertyAnimation, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
+import themes
+
 BALL_SIZE = 56
 DRAG_THRESHOLD = 4
 # 事件闪烁时长（毫秒）
@@ -17,9 +19,10 @@ FLASH_DURATION_MS = 2000
 class FloatBall(QWidget):
     """悬浮球本体。"""
 
-    def __init__(self, card, parent=None):
+    def __init__(self, card, config=None, parent=None):
         super().__init__(parent)
         self._card = card
+        self._config = config
 
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -46,6 +49,29 @@ class FloatBall(QWidget):
         # 初始位置：屏幕右侧中部
         screen = self.screen().availableGeometry()
         self.move(screen.right() - BALL_SIZE - 12, screen.center().y() - BALL_SIZE // 2)
+        self.apply_theme()
+
+    # ---------- 主题 ----------
+
+    @staticmethod
+    def _blend(c1, c2, t):
+        return QColor(
+            int(c1.red() + (c2.red() - c1.red()) * t),
+            int(c1.green() + (c2.green() - c1.green()) * t),
+            int(c1.blue() + (c2.blue() - c1.blue()) * t),
+        )
+
+    def apply_theme(self):
+        """按配置应用悬浮球主题（渐变、文字、闪动色），立即重绘。"""
+        name = self._config.ball_theme if self._config else "深空蓝"
+        t = themes.ball_theme(name)
+        top = QColor(t["grad"][0])
+        bottom = QColor(t["grad"][1])
+        self._ball_stops = (top, self._blend(top, bottom, 0.55), bottom)
+        self._ball_text = QColor(t["text"])
+        self._flash_added = QColor(t["flash_added"])
+        self._flash_removed = QColor(t["flash_removed"])
+        self.update()
 
     # ---------- 闪烁属性 ----------
 
@@ -59,8 +85,10 @@ class FloatBall(QWidget):
     flashStrength = Property(float, _get_flash, _set_flash)
 
     def flash(self, added):
-        """串口事件时的红/绿描边呼吸提示。"""
-        self._flash_color = QColor(120, 220, 140) if added else QColor(230, 80, 80)
+        """串口事件时的红/绿描边呼吸提示（主题色）。"""
+        self._flash_color = (
+            QColor(self._flash_added) if added else QColor(self._flash_removed)
+        )
         self._flash_anim.stop()
         self._flash_anim.start()
 
@@ -75,11 +103,18 @@ class FloatBall(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = self.rect().adjusted(3, 3, -3, -3)
 
-        # 半透明径向渐变球体
+        # 半透明径向渐变球体（主题色）
+        top, mid, bottom = self._ball_stops
+        top_a = QColor(top)
+        top_a.setAlpha(210)
+        mid_a = QColor(mid)
+        mid_a.setAlpha(190)
+        bottom_a = QColor(bottom)
+        bottom_a.setAlpha(170)
         gradient = QRadialGradient(rect.center().x() - 8, rect.center().y() - 8, BALL_SIZE)
-        gradient.setColorAt(0.0, QColor(90, 140, 240, 210))
-        gradient.setColorAt(0.7, QColor(50, 80, 170, 190))
-        gradient.setColorAt(1.0, QColor(35, 55, 120, 170))
+        gradient.setColorAt(0.0, top_a)
+        gradient.setColorAt(0.7, mid_a)
+        gradient.setColorAt(1.0, bottom_a)
         painter.setPen(QPen(QColor(255, 255, 255, 60), 1))
         painter.setBrush(gradient)
         painter.drawEllipse(rect)
@@ -93,7 +128,9 @@ class FloatBall(QWidget):
             painter.drawEllipse(rect)
 
         # 中心：串口数量
-        painter.setPen(QColor(255, 255, 255, 235))
+        count_color = QColor(self._ball_text)
+        count_color.setAlpha(235)
+        painter.setPen(count_color)
         font = QFont(self.font())
         font.setPointSize(15)
         font.setBold(True)
@@ -103,7 +140,9 @@ class FloatBall(QWidget):
         font.setPointSize(6)
         font.setBold(False)
         painter.setFont(font)
-        painter.setPen(QColor(255, 255, 255, 170))
+        label_color = QColor(self._ball_text)
+        label_color.setAlpha(170)
+        painter.setPen(label_color)
         painter.drawText(rect.adjusted(0, 16, 0, 0), Qt.AlignCenter, "串口")
 
     # ---------- 拖拽 / 点击 ----------

@@ -17,7 +17,7 @@ class FakeRow(QFrame):
     edit_requested = Signal(str)
     clicked = Signal(str)
 
-    def __init__(self, device, desc, alias, info=None, parent=None):
+    def __init__(self, device, desc, alias, info=None, parent=None, **kwargs):
         super().__init__(parent)
         self.device = device
         self.desc = desc
