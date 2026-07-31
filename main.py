@@ -160,6 +160,7 @@ def main():
     tray.setContextMenu(menu)
     tray.show()
 
+    ball.set_context_menu(menu)
     ball.show()
     sys.exit(app.exec())
 

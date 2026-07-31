@@ -33,7 +33,7 @@ Windows device broadcast (WM_DEVICECHANGE 0x0219)
 |---|---|
 | `main.py` | Entry point: object construction, all signal wiring, tray menu (显示/设置/开机自启/退出), logging, single-instance lock |
 | `card_window.py` | `CardWindow` (translucent port list), `PortRow`, `NotificationItem` (auto-fade, configurable lifetime) |
-| `float_ball.py` | `FloatBall`: 56px draggable ball, paint/flash animation (no OS-event duties) |
+| `float_ball.py` | `FloatBall`: 56px draggable ball, paint/flash animation, right-click context menu (shares the tray `QMenu` instance via `set_context_menu`) |
 | `serial_monitor.py` | `SerialMonitor` (QObject): port enumeration + diff, `PortInfo` dataclass, `_DeviceChangeFilter` (native event capture) |
 | `alias_store.py` | `AliasStore`: JSON persistence of port aliases |
 | `app_config.py` | `AppConfig`: user settings (notify lifetime / auto-show / notify-on-remove), JSON persistence, type coercion |

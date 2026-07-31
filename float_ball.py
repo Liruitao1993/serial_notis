@@ -23,6 +23,7 @@ class FloatBall(QWidget):
         super().__init__(parent)
         self._card = card
         self._config = config
+        self._menu = None
 
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -171,6 +172,20 @@ class FloatBall(QWidget):
             if not self._dragging:
                 self.toggle_card()
             self._dragging = False
+
+    # ---------- 右键菜单 ----------
+
+    def set_context_menu(self, menu):
+        """设置右键菜单（与系统托盘共用同一个 QMenu）。"""
+        self._menu = menu
+
+    def contextMenuEvent(self, event):
+        self.show_context_menu(event.globalPos())
+
+    def show_context_menu(self, global_pos):
+        """在指定屏幕坐标弹出菜单；未设置菜单时无操作。"""
+        if self._menu is not None:
+            self._menu.exec(global_pos)
 
     # ---------- 卡片 ----------
 
