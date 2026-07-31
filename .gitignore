@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# PyInstaller output
+build/
+dist/
+
+# Runtime data (user-specific port aliases)
+port_aliases.json
+
+# Local tooling (opencode server state, contains secrets)
+.opencode/
