@@ -135,7 +135,7 @@
 ### 方式一：下载即用（推荐）
 
 1. 打开 [Releases 页面](https://github.com/Liruitao1993/serial_notis/releases/latest)
-2. 下载 `串口提示助手.exe`（单文件，约 48 MB，无需安装 Python）
+2. 下载 `SerialNotis-v1.0.0-win64.exe`（单文件，约 48 MB，无需安装 Python）
 3. 双击运行，托盘区出现悬浮球即可
 
 > [!NOTE]
