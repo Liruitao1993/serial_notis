@@ -169,6 +169,13 @@ def ball_theme(name):
     return BALL_THEMES.get(name, BALL_THEMES["深空蓝"])
 
 
+# 悬浮球动效名称（设置对话框下拉 + 配置值）
+BALL_ANIMATIONS = ["关", "呼吸", "脉冲光环", "旋转粒子"]
+
+# 悬浮球形象：经典球 + 卡通形象
+MASCOTS = ["经典球", "小奶龙", "大白"]
+
+
 def card_theme(name):
     return CARD_THEMES.get(name, CARD_THEMES["深色"])
 

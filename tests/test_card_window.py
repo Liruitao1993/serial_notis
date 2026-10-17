@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""CardWindow 列表重建逻辑测试：指纹缓存、force 重建、详情传递、自然排序。"""
+"""CardWindow 列表重建逻辑测试：指纹缓存、force 重建、详情传递、自然排序、事件历史。"""
+
+from datetime import datetime
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFrame
@@ -83,3 +85,49 @@ def test_port_sort_key_natural_order():
     key = cw.CardWindow._port_sort_key
     ports = ["COM10", "COM2", "COM1", "COM64"]
     assert sorted(ports, key=key) == ["COM1", "COM2", "COM10", "COM64"]
+
+
+# ---------- 插拔事件历史记录 ----------
+
+
+def test_log_event_max_limit(qapp, tmp_path):
+    card = make_card(tmp_path)
+    for i in range(12):
+        card.log_event(f"COM{i}", f"设备{i}", added=(i % 2 == 0))
+    assert len(card._event_log) == cw.EVENT_LOG_MAX
+    # 最早两条（COM0, COM1）被淘汰
+    assert card._event_log[0]["device"] == "COM2"
+    assert card._event_log[-1]["device"] == "COM11"
+
+
+def test_log_event_timestamp(qapp, tmp_path):
+    card = make_card(tmp_path)
+    card.log_event("COM1", "USB 串口", added=True)
+    assert isinstance(card._event_log[0]["timestamp"], datetime)
+
+
+def test_log_event_added_flag(qapp, tmp_path):
+    card = make_card(tmp_path)
+    card.log_event("COM1", "设备A", added=True)
+    card.log_event("COM2", "设备B", added=False)
+    assert card._event_log[0]["added"] is True
+    assert card._event_log[1]["added"] is False
+
+
+def test_history_toggle(qapp, tmp_path):
+    card = make_card(tmp_path)
+    assert card._history_visible is False
+    card._on_history_clicked()
+    assert card._history_visible is True
+    card._on_history_clicked()
+    assert card._history_visible is False
+
+
+def test_log_event_updates_visible_panel(qapp, tmp_path):
+    card = make_card(tmp_path)
+    card._history_visible = True
+    # 面板初始为空（暂无记录）
+    before = card._history_layout.count()
+    card.log_event("COM1", "USB 串口", added=True)
+    after = card._history_layout.count()
+    assert after > before  # 新增了一条 EventLogItem

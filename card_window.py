@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """亚克力毛玻璃卡片窗口：当前串口列表 + 插拔通知条。"""
 
+from datetime import datetime
+
 from PySide6.QtCore import (
     Qt,
     QPropertyAnimation,
     QEasingCurve,
-    QSettings,
     QTimer,
     Signal,
 )
@@ -30,6 +31,9 @@ NOTIFY_LIFETIME_MS = 20000
 # 淡入 / 淡出时长（毫秒）
 FADE_IN_MS = 250
 FADE_OUT_MS = 400
+
+# 插拔事件历史记录最大条数
+EVENT_LOG_MAX = 10
 
 CARD_WIDTH = 320
 # 字号可调范围
@@ -116,11 +120,15 @@ class NotificationItem(QFrame):
         self._fade_in.setStartValue(0.0)
         self._fade_in.setEndValue(1.0)
         self._fade_in.start()
+        self._fade_out = None
 
         # 20 秒后淡出销毁（时长可配置）
         QTimer.singleShot(lifetime_ms, self._fade_out_and_close)
 
     def _fade_out_and_close(self):
+        # 安全重置：先停止旧动画，避免竞态
+        if self._fade_out is not None:
+            self._fade_out.stop()
         self._fade_out = QPropertyAnimation(self._effect, b"opacity", self)
         self._fade_out.setDuration(FADE_OUT_MS)
         self._fade_out.setStartValue(self._effect.opacity())
@@ -236,10 +244,57 @@ class PortRow(QFrame):
         super().mousePressEvent(event)
 
 
+class EventLogItem(QFrame):
+    """单条插拔事件记录：时间 + 图标 + 设备描述，静态展示无动画。"""
+
+    # 复用 NotificationItem 的配色键，alpha 降低使历史条目更柔和
+    _DEFAULT_COLORS = {
+        "added": ("rgba(120,220,140,45)", "rgba(120,220,140,80)", "#FFFFFF"),
+        "removed": ("rgba(230,80,80,45)", "rgba(230,80,80,80)", "#FFFFFF"),
+    }
+
+    def __init__(self, device, desc, added, alias, timestamp, parent=None, colors=None, font_size=12):
+        super().__init__(parent)
+        self.setObjectName("eventLogItem")
+        pal = colors or {}
+        if added:
+            bg, border, text_color = pal.get("notify_added", self._DEFAULT_COLORS["added"])
+            icon = "\u2795"  # ➕
+        else:
+            bg, border, text_color = pal.get("notify_removed", self._DEFAULT_COLORS["removed"])
+            icon = "\u2716"  # ✖
+
+        self.setStyleSheet(
+            f"QFrame#eventLogItem {{ background: {bg}; border: 1px solid {border}; border-radius: 6px; }}"
+            f"QLabel {{ background: transparent; border: none; color: {text_color}; }}"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(6)
+
+        time_label = QLabel(timestamp.strftime("%H:%M:%S"))
+        time_label.setStyleSheet(f"font-size: {font_size - 1}px; opacity: 180;")
+        layout.addWidget(time_label)
+
+        icon_label = QLabel(icon)
+        icon_label.setStyleSheet(f"font-size: {font_size}px;")
+        layout.addWidget(icon_label)
+
+        # 设备名（备注优先）+ 描述
+        name = f"{device}（{alias}）" if alias else device
+        clean = desc.replace(f"({device})", "").strip() if desc else ""
+        text = f"{name}  {clean}" if clean else name
+        text_label = QLabel(text)
+        text_label.setStyleSheet(f"font-size: {font_size}px;")
+        layout.addWidget(text_label, 1)
+
+
 class CardWindow(QWidget):
     """无边框置顶亚克力卡片。"""
 
     refresh_requested = Signal()  # 点击刷新按钮，由外部重新枚举串口
+    log_event_requested = Signal(str, str, bool)  # device, desc, added
 
     def __init__(self, alias_store, config=None, parent=None):
         super().__init__(parent)
@@ -265,11 +320,10 @@ class CardWindow(QWidget):
         self._notify_colors = {}
         # 备注编辑对话框打开期间禁止自动收回卡片
         self._editing = False
-        # 卡片背景透明度（滑条调节，QSettings 持久化）
-        self._settings = QSettings("SerialHelper", "card")
-        try:
-            self._panel_alpha = int(self._settings.value("panel_alpha", ALPHA_DEFAULT))
-        except (TypeError, ValueError):
+        # 卡片背景透明度（AppConfig 持久化）
+        if self._config is not None:
+            self._panel_alpha = int(self._config.panel_alpha)
+        else:
             self._panel_alpha = ALPHA_DEFAULT
         self._panel_alpha = max(ALPHA_MIN, min(ALPHA_MAX, self._panel_alpha))
         # 当前选中的串口（点击行高亮）
@@ -277,6 +331,11 @@ class CardWindow(QWidget):
         self._rows = []
         # 列表内容指纹：串口+描述+备注都没变化时跳过重建，避免无谓重绘白闪
         self._ports_signature = None
+        # 插拔事件历史记录（会话级，重启清空）
+        self._event_log = []
+        self._history_visible = False
+        # _shrink 合并标志：避免同一事件循环内多次排版
+        self._shrink_pending = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -325,6 +384,16 @@ class CardWindow(QWidget):
         )
         refresh_btn.clicked.connect(self.refresh_requested)
         header.addWidget(refresh_btn)
+
+        history_btn = QPushButton("\U0001f550")  # 🕐
+        history_btn.setFixedSize(22, 22)
+        history_btn.setCursor(Qt.PointingHandCursor)
+        history_btn.setToolTip("查看插拔事件记录")
+        history_btn.setObjectName("historyBtn")
+        history_btn.clicked.connect(self._on_history_clicked)
+        header.addWidget(history_btn)
+        self._history_btn = history_btn
+
         panel_layout.addLayout(header)
 
         # 分隔线
@@ -341,6 +410,15 @@ class CardWindow(QWidget):
         self._empty_label = QLabel("暂无串口设备")
         self._empty_label.setObjectName("emptyLabel")
         self._port_list_layout.addWidget(self._empty_label)
+
+        # 插拔事件记录面板
+        self._history_panel = QWidget()
+        self._history_panel.setObjectName("historyPanel")
+        self._history_panel.hide()  # 默认隐藏
+        self._history_layout = QVBoxLayout(self._history_panel)
+        self._history_layout.setContentsMargins(0, 0, 0, 0)
+        self._history_layout.setSpacing(4)
+        panel_layout.addWidget(self._history_panel)
 
         # 通知区
         self._notify_layout = QVBoxLayout()
@@ -363,15 +441,27 @@ class CardWindow(QWidget):
 
     def apply_theme(self):
         """按配置重建外观：面板 QSS、行样式、通知条配色、字体与宽度。"""
-        t = self._theme()
-        s = self._style()
-        cfg = self._config
-        if cfg:
-            radius = themes.resolve_radius(self._config.card_radius, self._config.card_style)
-        else:
-            radius = themes.resolve_radius(12, "卡片")
+        self._apply_typography()
+        self._apply_width()
+        self._apply_panel_qss()
+        self._apply_row_styles()
+        self._apply_history_style()
 
-        # 字号（钳制到安全范围），字体族经 QFont 传播到全部子控件
+        # 主题/圆角变化需重建现有行（避免旧样式残留）
+        if self._last_ports:
+            self.update_ports(self._last_ports, self._last_details, force=True)
+        else:
+            self._shrink()
+
+        # 如果历史面板当前可见，重建条目以应用新主题
+        if self._history_visible:
+            self._rebuild_history()
+
+    # ---------- 主题子方法 ----------
+
+    def _apply_typography(self):
+        """字号钳制 + 字体族设置。"""
+        cfg = self._config
         try:
             fs = int(cfg.font_size) if cfg else 12
         except (TypeError, ValueError):
@@ -379,8 +469,25 @@ class CardWindow(QWidget):
         self._font_size = max(FONT_SIZE_MIN, min(FONT_SIZE_MAX, fs))
         family = cfg.font_family if cfg else ""
         self.setFont(QFont(family, self._font_size))
-        # 颜色覆盖：非空时统一替换标题/正文/计数/弱化文字
-        color_override = cfg.font_color if cfg else ""
+
+    def _apply_width(self):
+        """卡片宽度钳制。"""
+        cfg = self._config
+        try:
+            width = int(cfg.card_width) if cfg else CARD_WIDTH
+        except (TypeError, ValueError):
+            width = CARD_WIDTH
+        self._card_width = max(240, min(480, width))
+        self.setFixedWidth(self._card_width)
+
+    def _apply_panel_qss(self):
+        """面板背景 + 通用控件 QSS。"""
+        t = self._theme()
+        s = self._style()
+        cfg = self._config
+        radius = themes.resolve_radius(
+            self._config.card_radius, self._config.card_style
+        ) if cfg else themes.resolve_radius(12, "卡片")
 
         def rgba(rgb):
             return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{rgb[3]})"
@@ -408,6 +515,7 @@ class CardWindow(QWidget):
 
         accent = rgba(t["row_selected_border"])
         fs = self._font_size
+        color_override = cfg.font_color if cfg else ""
         title_color = color_override or t["title"]
         text_color = color_override or t["text"]
         count_color = color_override or rgba(t["count"])
@@ -419,6 +527,8 @@ class CardWindow(QWidget):
             QLabel#emptyLabel {{ font-size: {fs}px; color: {muted_color}; }}
             QLabel.portItem {{ font-size: {fs}px; color: {text_color}; }}
             QFrame#cardLine {{ background: {line}; border: none; }}
+            QFrame#eventLogItem {{ background: rgba(255,255,255,15);
+                border: 1px solid rgba(255,255,255,25); border-radius: 6px; }}
             QSlider {{ background: transparent; }}
             QSlider::groove:horizontal {{
                 height: 4px; background: {line}; border-radius: 2px;
@@ -437,7 +547,16 @@ class CardWindow(QWidget):
             + common
         )
 
-        # 行样式：选中态用主题强调色
+    def _apply_row_styles(self):
+        """行选中/未选中样式 + 通知配色缓存。"""
+        t = self._theme()
+        radius = themes.resolve_radius(
+            self._config.card_radius, self._config.card_style
+        ) if self._config else themes.resolve_radius(12, "卡片")
+
+        def rgba(rgb):
+            return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{rgb[3]})"
+
         row_radius = max(4, radius - 4)
         row_selected_bg = rgba(t["row_selected_bg"])
         row_selected_border = rgba(t["row_selected_border"])
@@ -452,25 +571,22 @@ class CardWindow(QWidget):
         )
         self._notify_colors = t
 
-        # 卡片宽度（运行时生效）
-        try:
-            width = int(cfg.card_width) if cfg else CARD_WIDTH
-        except (TypeError, ValueError):
-            width = CARD_WIDTH
-        self._card_width = max(240, min(480, width))
-        self.setFixedWidth(self._card_width)
-
-        # 主题/圆角变化需重建现有行（避免旧样式残留）
-        if self._last_ports:
-            self.update_ports(self._last_ports, self._last_details, force=True)
-        else:
-            self._shrink()
+    def _apply_history_style(self):
+        """历史按钮样式。"""
+        history_qss = (
+            "QPushButton#historyBtn { background: transparent; border: none; "
+            "color: rgba(255,255,255,170); font-size: 15px; }"
+            "QPushButton#historyBtn:hover { color: white; background: rgba(255,255,255,40); "
+            "border-radius: 4px; }"
+        )
+        self._history_btn.setStyleSheet(history_qss)
 
     def _on_alpha_changed(self, value):
         """滑条拖动：实时更新背景透明度并持久化。"""
         self._panel_alpha = value
         self.apply_theme()
-        self._settings.setValue("panel_alpha", value)
+        if self._config is not None:
+            self._config.set("panel_alpha", value)
 
     # ---------- 串口列表 ----------
 
@@ -532,6 +648,54 @@ class CardWindow(QWidget):
         for row in self._rows:
             row.set_selected(row.device == self._selected_device)
 
+    # ---------- 插拔事件历史 ----------
+
+    def log_event(self, device, desc, added):
+        """记录一条插拔事件，超过上限时淘汰最旧条目。"""
+        self._event_log.append({
+            "device": device, "desc": desc, "added": added,
+            "timestamp": datetime.now(),
+        })
+        if len(self._event_log) > EVENT_LOG_MAX:
+            self._event_log = self._event_log[-EVENT_LOG_MAX:]
+        if self._history_visible:
+            self._rebuild_history()
+
+    def _on_history_clicked(self):
+        self._history_visible = not self._history_visible
+        if self._history_visible:
+            self._rebuild_history()
+            self._history_panel.show()
+        else:
+            self._history_panel.hide()
+        self._shrink()
+
+    def _rebuild_history(self):
+        """清空并重建历史面板内容。"""
+        while self._history_layout.count():
+            item = self._history_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+        if not self._event_log:
+            lbl = QLabel("暂无记录")
+            lbl.setObjectName("emptyLabel")
+            self._history_layout.addWidget(lbl)
+            return
+        # 最新在上
+        for entry in reversed(self._event_log):
+            alias = self._alias_store.get(entry["device"])
+            item = EventLogItem(
+                entry["device"], entry["desc"], entry["added"],
+                alias, entry["timestamp"],
+                parent=self._history_panel,
+                colors=self._notify_colors,
+                font_size=self._font_size,
+            )
+            self._history_layout.addWidget(item)
+
     def _edit_alias(self, device):
         """弹出输入框编辑备注名，保存后立即刷新并持久化。"""
         self._editing = True
@@ -587,10 +751,13 @@ class CardWindow(QWidget):
             self.hide()
 
     def _shrink(self):
-        """内容变化后重新排版并收缩高度。"""
-        QTimer.singleShot(0, self._do_shrink)
+        """内容变化后延迟排版并收缩高度（合并多次调用）。"""
+        if not self._shrink_pending:
+            self._shrink_pending = True
+            QTimer.singleShot(0, self._do_shrink)
 
     def _do_shrink(self):
+        self._shrink_pending = False
         # 强制重新排版；高度没变化就不 resize，亚克力窗口 resize 会白闪
         self._panel.layout().activate()
         self.layout().activate()

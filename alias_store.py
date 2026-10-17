@@ -7,6 +7,7 @@
 
 import json
 import logging
+from contextlib import contextmanager
 
 from app_paths import data_file
 
@@ -21,6 +22,7 @@ class AliasStore:
     def __init__(self, path=_ALIAS_FILE):
         self._path = path
         self._aliases = self._load()
+        self._deferred = False
 
     def _load(self):
         try:
@@ -45,6 +47,16 @@ class AliasStore:
         """取备注名，无则返回空串。"""
         return self._aliases.get(device, "")
 
+    @contextmanager
+    def batch(self):
+        """批量操作上下文：延迟写盘，退出时一次性保存。"""
+        self._deferred = True
+        try:
+            yield
+        finally:
+            self._deferred = False
+            self._save()
+
     def set(self, device, alias):
         """设置备注名；传空串则删除该备注。"""
         alias = alias.strip()
@@ -52,4 +64,5 @@ class AliasStore:
             self._aliases[device] = alias
         else:
             self._aliases.pop(device, None)
-        self._save()
+        if not self._deferred:
+            self._save()

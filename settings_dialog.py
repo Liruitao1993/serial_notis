@@ -68,6 +68,35 @@ class SettingsDialog(QDialog):
         self._ball_combo.currentTextChanged.connect(self._on_ball_theme)
         form.addRow("悬浮球主题", self._ball_combo)
 
+        self._mascot_combo = QComboBox()
+        self._mascot_combo.addItems(themes.MASCOTS)
+        self._mascot_combo.setCurrentIndex(
+            _index_of(themes.MASCOTS, self._config.ball_mascot)
+        )
+        self._mascot_combo.currentTextChanged.connect(self._on_mascot)
+        form.addRow("悬浮球形象", self._mascot_combo)
+
+        self._ball_anim_combo = QComboBox()
+        self._ball_anim_combo.addItems(themes.BALL_ANIMATIONS)
+        idx = themes.BALL_ANIMATIONS.index(self._config.ball_animation) if self._config.ball_animation in themes.BALL_ANIMATIONS else 1
+        self._ball_anim_combo.setCurrentIndex(idx)
+        self._ball_anim_combo.currentTextChanged.connect(self._on_ball_animation)
+        form.addRow("悬浮球动效", self._ball_anim_combo)
+
+        # Logo 弹框时长
+        popup_row = QHBoxLayout()
+        self._popup_dur_slider = QSlider()
+        self._popup_dur_slider.setOrientation(Qt.Horizontal)
+        self._popup_dur_slider.setRange(500, 5000)
+        self._popup_dur_slider.setSingleStep(100)
+        self._popup_dur_slider.setValue(self._config.popup_duration_ms)
+        self._popup_dur_slider.valueChanged.connect(self._on_popup_duration)
+        self._popup_dur_label = QLabel()
+        popup_row.addWidget(self._popup_dur_slider, 1)
+        popup_row.addWidget(self._popup_dur_label)
+        self._update_popup_dur_label(self._popup_dur_slider.value())
+        form.addRow("Logo展示时长", popup_row)
+
         self._card_combo = QComboBox()
         self._card_combo.addItems(list(themes.CARD_THEMES))
         self._card_combo.setCurrentIndex(_index_of(themes.CARD_THEMES, self._config.card_theme))
@@ -184,6 +213,22 @@ class SettingsDialog(QDialog):
 
     def _on_ball_theme(self, name):
         self._config.set("ball_theme", name)
+        self._on_preview()
+
+    def _on_mascot(self, name):
+        self._config.set("ball_mascot", name)
+        self._on_preview()
+
+    def _on_ball_animation(self, name):
+        self._config.set("ball_animation", name)
+        self._on_preview()
+
+    def _update_popup_dur_label(self, value):
+        self._popup_dur_label.setText(f"{value / 1000:.1f} 秒")
+
+    def _on_popup_duration(self, value):
+        self._config.set("popup_duration_ms", value)
+        self._update_popup_dur_label(value)
         self._on_preview()
 
     def _on_card_theme(self, name):

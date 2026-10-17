@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """串口提示助手入口：悬浮球 + 亚克力卡片 + 串口插拔监测。"""
 
 import logging
@@ -15,9 +14,12 @@ from app_config import AppConfig
 from app_paths import data_file
 from autostart import Autostart
 from card_window import CardWindow
+from com_manager import try_run_com_task
+from com_manager_dialog import ComManagerDialog
 from float_ball import FloatBall
 from serial_monitor import SerialMonitor
 from settings_dialog import SettingsDialog
+from usb_popup import UsbPopup
 
 LOG_FILE = data_file("app.log")
 LOCK_NAME = "serial_notis.lock"
@@ -71,6 +73,11 @@ def _make_tray_icon():
 
 
 def main():
+    # 提权子任务模式：--com-task 由 run_elevated 启动，执行完即退出
+    # （不走 GUI/单实例/托盘，必须在 QApplication 之前处理）
+    if try_run_com_task(sys.argv):
+        return 0
+
     _setup_logging()
     sys.excepthook = _handle_exception
 
@@ -90,6 +97,9 @@ def main():
     aliases = AliasStore()
     card = CardWindow(aliases, config)
     ball = FloatBall(card, config)
+    ball.apply_mascot(config.ball_mascot)
+    popup = UsbPopup()
+    popup.set_duration(config.popup_duration_ms)
 
     # 初始状态
     card.update_ports(monitor.ports, monitor.details)
@@ -101,7 +111,10 @@ def main():
         card.add_notification(
             device, desc, added=True, lifetime_ms=config.notify_lifetime_ms
         )
+        card.log_event(device, desc, added=True)
         ball.flash(added=True)
+        alias = aliases.get(device)
+        popup.show_popup(added=True, port=device, alias=alias, desc=desc)
         if config.auto_show_card and not card.isVisible():
             card.auto_shown = True
             ball.show_card()
@@ -113,7 +126,10 @@ def main():
             card.add_notification(
                 device, desc, added=False, lifetime_ms=config.notify_lifetime_ms
             )
+        card.log_event(device, desc, added=False)
         ball.flash(added=False)
+        alias = aliases.get(device)
+        popup.show_popup(added=False, port=device, alias=alias, desc=desc)
         if config.auto_show_card and not card.isVisible():
             card.auto_shown = True
             ball.show_card()
@@ -135,15 +151,21 @@ def main():
     menu = QMenu()
     show_action = QAction("显示悬浮球", menu)
     show_action.triggered.connect(ball.show)
+
     def on_preview():
         """设置对话框即时预览：重绘卡片与悬浮球。"""
         card.apply_theme()
         ball.apply_theme()
+        ball.apply_mascot(config.ball_mascot)
+        ball.apply_animation()
+        popup.set_duration(config.popup_duration_ms)
 
     settings_action = QAction("设置…", menu)
     settings_action.triggered.connect(
         lambda: SettingsDialog(config, on_preview=on_preview).exec()
     )
+    com_mgr_action = QAction("串口号管理（清理/固定口号）…", menu)
+    com_mgr_action.triggered.connect(lambda: ComManagerDialog().exec())
     autostart = Autostart()
     autostart_action = QAction("开机自启", menu)
     autostart_action.setCheckable(True)
@@ -154,6 +176,7 @@ def main():
     menu.addAction(show_action)
     menu.addSeparator()
     menu.addAction(settings_action)
+    menu.addAction(com_mgr_action)
     menu.addAction(autostart_action)
     menu.addSeparator()
     menu.addAction(quit_action)

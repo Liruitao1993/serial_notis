@@ -17,7 +17,6 @@ from serial_monitor import (
     _port_info,
 )
 
-
 def make_port(device, desc="", vid=None, pid=None, manufacturer="", hwid=""):
     return SimpleNamespace(
         device=device,
@@ -190,3 +189,74 @@ def test_port_info_missing_fields():
     assert info.description == ""
     assert info.vid is None and info.vidpid == ""
     assert info.manufacturer == "" and info.hwid == ""
+
+
+# ---------- 廉价预检轮询（性能优化） ----------
+
+
+def test_poll_skips_full_enumeration_when_unchanged(monkeypatch):
+    """COM 口集合未变：轮询不得触发全量枚举（空闲开销接近 0）。"""
+    a1 = make_port("COM1", "a")
+    m = make_monitor(monkeypatch, [{"COM1": a1}])  # __init__ 消耗唯一快照
+    m._cheap_sig = frozenset({"COM1"})  # 固定初始签名，隔离真实机器状态
+
+    # 廉价预检始终返回与初始相同的集合
+    monkeypatch.setattr(
+        "serial_monitor._cheap_port_names", lambda: frozenset({"COM1"})
+    )
+    full_calls = {"n": 0}
+    orig_snapshot = SerialMonitor._snapshot  # staticmethod，无 self
+
+    def counting_snapshot():
+        full_calls["n"] += 1
+        return orig_snapshot()
+
+    monkeypatch.setattr(SerialMonitor, "_snapshot", staticmethod(counting_snapshot))
+
+    m._poll_tick()
+    m._poll_tick()
+    assert full_calls["n"] == 0  # 未做全量枚举
+
+
+def test_poll_full_enumerates_when_set_changes(monkeypatch):
+    """COM 口集合变化：轮询触发全量枚举并发信号。"""
+    a1 = make_port("COM1", "a")
+    a2 = make_port("COM2", "b")
+    m = make_monitor(
+        monkeypatch,
+        [{"COM1": a1}, {"COM1": a1, "COM2": a2}],
+    )
+    m._cheap_sig = frozenset({"COM1"})  # 初始只有 COM1
+    added = []
+    m.port_added.connect(lambda d, s: added.append((d, s)))
+
+    # 预检返回新增 COM2 的集合
+    monkeypatch.setattr(
+        "serial_monitor._cheap_port_names",
+        lambda: frozenset({"COM1", "COM2"}),
+    )
+    m._poll_tick()
+    assert added == [("COM2", "b")]
+    # 全量枚举后签名已同步，再轮询（预检仍返回两个口）不应重复触发
+    m._poll_tick()
+    assert added == [("COM2", "b")]
+
+
+def test_poll_falls_back_when_cheap_unavailable(monkeypatch):
+    """廉价预检返回 None（非 Windows/调用失败）：回退全量枚举，不漏检。"""
+    a1 = make_port("COM1", "a")
+    m = make_monitor(monkeypatch, [{"COM1": a1}, {"COM1": a1}])
+    m._cheap_sig = frozenset({"COM1"})
+    monkeypatch.setattr("serial_monitor._cheap_port_names", lambda: None)
+    # 不应抛异常；全量枚举内容一致，无信号
+    m._poll_tick()
+
+
+def test_cheap_port_names_returns_frozenset_or_none():
+    """廉价预检在 Windows 上返回 COM 名集合，失败时返回 None（不抛异常）。"""
+    import serial_monitor
+
+    sig = serial_monitor._cheap_port_names()
+    assert sig is None or isinstance(sig, frozenset)
+    if sig is not None:
+        assert all(isinstance(n, str) and n for n in sig)

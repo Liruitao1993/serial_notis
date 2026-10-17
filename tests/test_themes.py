@@ -22,6 +22,8 @@ def test_registry_completeness():
     assert len(themes.BALL_THEMES) >= 4, "至少 4 组悬浮球主题"
     assert len(themes.CARD_THEMES) >= 4, "至少 4 组卡片主题"
     assert set(themes.CARD_STYLES) == {"卡片", "气泡", "极简"}
+    assert set(themes.BALL_ANIMATIONS) == {"关", "呼吸", "脉冲光环", "旋转粒子"}
+    assert set(themes.MASCOTS) == {"经典球", "小奶龙", "大白"}
     for name, t in themes.BALL_THEMES.items():
         assert set(t) == BALL_KEYS, f"球主题缺键: {name}"
         assert len(t["grad"]) == 2
@@ -122,6 +124,8 @@ def test_settings_dialog_populates_themes(qapp, tmp_path):
     config = AppConfig(path=tmp_path / "config.json")
     dialog = SettingsDialog(config)
     assert dialog._ball_combo.count() == len(themes.BALL_THEMES)
+    assert dialog._ball_anim_combo.count() == len(themes.BALL_ANIMATIONS)
+    assert dialog._mascot_combo.count() == len(themes.MASCOTS)
     assert dialog._card_combo.count() == len(themes.CARD_THEMES)
     assert dialog._style_combo.count() == len(themes.CARD_STYLES)
     assert dialog._radius_slider.maximum() == themes.RADIUS_MAX
