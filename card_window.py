@@ -29,7 +29,7 @@ import themes
 # 通知条存活时间（毫秒）
 NOTIFY_LIFETIME_MS = 20000
 # 淡入 / 淡出时长（毫秒）
-FADE_IN_MS = 250
+FADE_IN_MS = 120
 FADE_OUT_MS = 400
 
 # 插拔事件历史记录最大条数

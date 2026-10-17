@@ -14,6 +14,7 @@ from app_paths import data_file
 logger = logging.getLogger(__name__)
 
 DEFAULTS = {
+    "perf_profile": "自动",        # 响应档位（perf_profile.PROFILE_NAMES）
     "notify_lifetime_ms": 20000,  # 通知条停留时长（毫秒）
     "auto_show_card": True,       # 串口事件时自动弹出卡片
     "notify_on_remove": True,     # 拔出串口时也显示通知

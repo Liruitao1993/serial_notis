@@ -35,7 +35,7 @@ app = QApplication(sys.argv)
 from app_config import AppConfig
 from alias_store import AliasStore
 from card_window import CardWindow
-from float_ball import FloatBall, ANIM_FPS
+from float_ball import FloatBall
 
 config = AppConfig()
 aliases = AliasStore()

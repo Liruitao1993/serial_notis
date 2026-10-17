@@ -17,12 +17,13 @@ from dataclasses import dataclass
 from PySide6.QtCore import QAbstractNativeEventFilter, QObject, QTimer, Signal
 from serial.tools import list_ports
 
-# 兜底轮询间隔（毫秒）。
-# 正常检测由 WM_DEVICECHANGE 事件驱动（即时），轮询只是事件丢失时的兜底，
-# 因此间隔可以放长；且轮询先用廉价预检（QueryDosDevice）判断 COM 口集合，
-# 集合不变时跳过昂贵的全量枚举，空闲开销接近 0。
-POLL_INTERVAL_MS = 3000
-# 收到设备变更广播后延迟刷新，等待驱动完成枚举（毫秒）
+# 兜底轮询间隔默认值（毫秒），实际值由 set_timings() 按响应档位设置。
+# 正常检测由 WM_DEVICECHANGE 事件驱动（即时），轮询只是事件丢失时的兜底；
+# 每轮先用廉价预检（QueryDosDevice，实测约 0.12ms）判断 COM 口集合，
+# 集合不变时跳过昂贵的全量枚举（pyserial/SetupAPI，实测约 12.6ms），
+# 因此轮询频率可以放高而不增加 IO/CPU 负担。
+POLL_INTERVAL_MS = 1000
+# 收到设备变更广播后延迟复核的默认值（毫秒），等待驱动完成枚举
 DEVICE_CHANGE_DELAY_MS = 200
 
 WM_DEVICECHANGE = 0x0219
@@ -120,15 +121,19 @@ class SerialMonitor(QObject):
         # 设备广播过滤器（组合），由外部 installNativeEventFilter 注册
         self.event_filter = _DeviceChangeFilter(self)
 
+        # 响应节奏（可由 set_timings 按「响应档位」调整）
+        self._poll_ms = POLL_INTERVAL_MS
+        self._event_delay_ms = DEVICE_CHANGE_DELAY_MS
+
         self._poll_timer = QTimer(self)
-        self._poll_timer.setInterval(POLL_INTERVAL_MS)
+        self._poll_timer.setInterval(self._poll_ms)
         self._poll_timer.timeout.connect(self._poll_tick)
         self._poll_timer.start()
 
         # 事件去抖：WM_DEVICECHANGE 可能连发，单发定时器合并为一次刷新
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.setInterval(DEVICE_CHANGE_DELAY_MS)
+        self._refresh_timer.setInterval(self._event_delay_ms)
         self._refresh_timer.timeout.connect(self.refresh)
 
     @staticmethod
@@ -153,8 +158,30 @@ class SerialMonitor(QObject):
         """当前串口完整信息 {device: PortInfo}（供 tooltip 使用）。"""
         return dict(self._ports)
 
+    def set_timings(self, poll_ms=None, event_delay_ms=None):
+        """按响应档位设置兜底轮询间隔与事件复核延迟（毫秒）。
+
+        只更新传入的项；轮询定时器按新间隔重启，避免仍按旧节奏多触发一次。
+        """
+        if poll_ms is not None:
+            self._poll_ms = max(100, int(poll_ms))
+            self._poll_timer.setInterval(self._poll_ms)
+            self._poll_timer.start()
+        if event_delay_ms is not None:
+            self._event_delay_ms = max(0, int(event_delay_ms))
+            self._refresh_timer.setInterval(self._event_delay_ms)
+
     def schedule_refresh(self):
-        """收到设备变更广播时调用：合并去抖后延迟刷新，等待驱动枚举完成。"""
+        """收到设备变更广播时调用。
+
+        先做一次廉价预检（约 0.12ms）：若 COM 口集合已变化，说明驱动已就绪，
+        立即全量枚举并发出插拔信号（常见情况十几毫秒内出提示），不必白等一个
+        复核周期；预检未变化或不可用时，退回延迟复核（保持原有兜底行为）。
+        两条路径都会再安排一次延迟复核，用于补全随后才就绪的描述 / VID:PID。
+        """
+        sig = _cheap_port_names()
+        if sig is not None and sig != self._cheap_sig:
+            self.refresh()
         self._refresh_timer.start()
 
     def _poll_tick(self):

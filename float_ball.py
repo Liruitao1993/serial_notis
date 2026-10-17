@@ -24,9 +24,12 @@ MASCOT_PADDING = 28    # 泡泡/气泡溢出空间
 DRAG_THRESHOLD = 4
 # 事件闪烁时长（毫秒）
 FLASH_DURATION_MS = 2000
-# 动效帧率。30fps 对呼吸/光环/粒子等慢动效已足够流畅，
-# 重绘开销比 60fps 减半；跳跃/闪烁走 QPropertyAnimation，不受此帧率影响。
-ANIM_FPS = 30
+# 动效帧率默认值。30fps 对呼吸/光环/粒子等慢动效已足够流畅，重绘开销比 60fps
+# 减半；跳跃/闪烁走 QPropertyAnimation，不受此帧率影响。实际帧率由响应档位设置。
+DEFAULT_ANIM_FPS = 30
+# 帧率不高于该值时冻结动效相位（球体静态显示，定时器只用于推进事件气泡年龄）：
+# 「省电」档用它换掉每秒 30 次重绘带来的 CPU 唤醒。
+STATIC_FPS_MAX = 10
 # 呼吸周期（毫秒）
 BREATH_PERIOD_MS = 3200
 # 脉冲光环周期
@@ -78,6 +81,8 @@ class FloatBall(QWidget):
 
         # 动效时间推进（毫秒，精确计时）
         self._anim_time = 0
+        self._last_tick = 0
+        self._anim_fps = DEFAULT_ANIM_FPS
         self._anim_elapsed = QElapsedTimer()
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._on_anim_tick)
@@ -121,20 +126,35 @@ class FloatBall(QWidget):
         self.update()
 
     def apply_animation(self):
-        """按配置启停动效定时器。"""
+        """按配置与当前响应档位启停动效定时器。"""
         name = self._config.ball_animation if self._config else "呼吸"
         mascot = self._mascot_name
         # 卡通形象始终需要动画（呼吸/眨眼），经典球按配置
         need_timer = bool(mascot) or (name and name != "关")
+        interval = max(1, 1000 // max(1, self._anim_fps))
         if need_timer:
-            if not self._anim_timer.isActive():
+            if not self._anim_timer.isActive() or self._anim_timer.interval() != interval:
                 self._anim_elapsed.start()
-                self._anim_timer.start(1000 // ANIM_FPS)
+                self._last_tick = 0
+                self._anim_time = 0
+                self._anim_timer.start(interval)
         else:
             if self._anim_timer.isActive():
                 self._anim_timer.stop()
             self._anim_time = 0
         self.update()
+
+    def set_anim_fps(self, fps):
+        """设置动效帧率（由响应档位决定）。
+
+        帧率不高于 STATIC_FPS_MAX 时动效相位被冻结：球体静止不动，
+        定时器降到该帧率只为推进事件气泡年龄，从而大幅减少每秒唤醒次数。
+        """
+        fps = max(0, int(fps))
+        if fps == self._anim_fps:
+            return
+        self._anim_fps = fps
+        self.apply_animation()
 
     def apply_mascot(self, name=None):
         """设置悬浮球形象（「经典球」/ None = 经典球模式），调整画布大小。"""
@@ -163,13 +183,15 @@ class FloatBall(QWidget):
 
     def _on_anim_tick(self):
         now = self._anim_elapsed.elapsed()
-        dt = now - self._anim_time
-        self._anim_time = now
-        # 事件气泡年龄按真实时间推进（与帧率无关，30fps 下也不会变慢）
+        dt = max(0, now - self._last_tick)
+        self._last_tick = now
+        # 事件气泡年龄按真实时间推进（与帧率无关，低帧率下也不会变慢）
         if self._event_type is not None:
-            self._event_age_ms += max(0, dt)
+            self._event_age_ms += dt
             if self._event_age_ms > 4000:
                 self._event_type = None
+        # 省电档冻结动效相位（球体静态）；正常档位按真实时间推进动效
+        self._anim_time = 0 if self._anim_fps <= STATIC_FPS_MAX else now
         self.update()
 
     # ---------- 闪烁属性 ----------

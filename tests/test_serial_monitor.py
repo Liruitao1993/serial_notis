@@ -260,3 +260,76 @@ def test_cheap_port_names_returns_frozenset_or_none():
     assert sig is None or isinstance(sig, frozenset)
     if sig is not None:
         assert all(isinstance(n, str) and n for n in sig)
+
+
+# ---------- 响应档位相关的时序与 fast-path ----------
+
+
+def test_set_timings_updates_intervals(monkeypatch):
+    """set_timings 同时更新轮询间隔与事件复核延迟。"""
+    m = make_monitor(monkeypatch, [{"COM1": make_port("COM1")}])
+    m.set_timings(poll_ms=500, event_delay_ms=100)
+    assert m._poll_ms == 500
+    assert m._event_delay_ms == 100
+    assert m._poll_timer.interval() == 500
+    assert m._refresh_timer.interval() == 100
+
+
+def test_set_timings_only_updates_given_values(monkeypatch):
+    """只更新传入的项，未传入的保持原值。"""
+    m = make_monitor(monkeypatch, [{"COM1": make_port("COM1")}])
+    m.set_timings(poll_ms=2000, event_delay_ms=300)
+    m.set_timings(poll_ms=500)
+    assert m._poll_ms == 500
+    assert m._event_delay_ms == 300
+
+
+def test_set_timings_clamps_lower_bound(monkeypatch):
+    """过小的间隔被夹到下限，避免定时器空转。"""
+    m = make_monitor(monkeypatch, [{"COM1": make_port("COM1")}])
+    m.set_timings(poll_ms=1, event_delay_ms=-50)
+    assert m._poll_ms == 100
+    assert m._event_delay_ms == 0
+
+
+def test_schedule_refresh_fast_path(monkeypatch):
+    """预检已看到新口时立即刷新，不必等事件复核周期（这是提示变快的关键）。"""
+    a1 = make_port("COM1", "主节点")
+    a2 = make_port("COM2", "从节点")
+    m = make_monitor(monkeypatch, [{"COM1": a1}, {"COM1": a1, "COM2": a2}])
+    m._cheap_sig = frozenset({"COM1"})
+    monkeypatch.setattr(
+        "serial_monitor._cheap_port_names", lambda: frozenset({"COM1", "COM2"})
+    )
+    added = []
+    m.port_added.connect(lambda d, s: added.append(d))
+
+    m.schedule_refresh()
+
+    assert added == ["COM2"]
+    # 仍安排一次延迟复核，用于补全随后才就绪的描述 / VID:PID
+    assert m._refresh_timer.isActive()
+
+
+def test_schedule_refresh_waits_when_precheck_unchanged(monkeypatch):
+    """预检无变化时不立即枚举，只安排延迟复核（保持原有兜底行为）。"""
+    m = make_monitor(monkeypatch, [{"COM1": make_port("COM1")}])
+    m._cheap_sig = frozenset({"COM1"})
+    monkeypatch.setattr("serial_monitor._cheap_port_names", lambda: frozenset({"COM1"}))
+    added = []
+    m.port_added.connect(lambda d, s: added.append(d))
+
+    m.schedule_refresh()
+
+    assert added == []
+    assert m._refresh_timer.isActive()
+
+
+def test_schedule_refresh_falls_back_when_precheck_unavailable(monkeypatch):
+    """预检不可用（返回 None）时退回延迟复核，不漏检也不误报。"""
+    m = make_monitor(monkeypatch, [{"COM1": make_port("COM1")}])
+    monkeypatch.setattr("serial_monitor._cheap_port_names", lambda: None)
+
+    m.schedule_refresh()
+
+    assert m._refresh_timer.isActive()

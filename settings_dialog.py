@@ -5,6 +5,7 @@
 无需 OK/Cancel（与卡片透明度滑条的交互模式一致）。
 """
 
+import perf_profile
 import themes
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFontDatabase
@@ -61,6 +62,21 @@ class SettingsDialog(QDialog):
     def _build_appearance(self):
         page = QWidget()
         form = QFormLayout(page)
+
+        # 响应档位：同时决定兜底轮询间隔、事件复核延迟与动效帧率
+        self._perf_combo = QComboBox()
+        self._perf_combo.addItems(list(perf_profile.PROFILE_NAMES))
+        self._perf_combo.setCurrentIndex(
+            _index_of(perf_profile.PROFILE_NAMES, self._config.perf_profile)
+        )
+        self._perf_combo.setToolTip(
+            "省电：预检 10 秒、动效静止（适合笔记本电池）\n"
+            "均衡：预检 1 秒、30fps 动效（推荐）\n"
+            "敏捷：预检 0.5 秒、响应最快\n"
+            "自动：插电用均衡，电池用省电"
+        )
+        self._perf_combo.currentTextChanged.connect(self._on_perf_profile)
+        form.addRow("响应档位", self._perf_combo)
 
         self._ball_combo = QComboBox()
         self._ball_combo.addItems(list(themes.BALL_THEMES))
@@ -210,6 +226,11 @@ class SettingsDialog(QDialog):
         self._config.set("font_color", "")
         self._on_preview()
         self._update_color_swatch()
+
+    def _on_perf_profile(self, name):
+        """切换响应档位：写入配置并即时生效（由预览回调重设各组件节奏）。"""
+        self._config.set("perf_profile", name)
+        self._on_preview()
 
     def _on_ball_theme(self, name):
         self._config.set("ball_theme", name)
