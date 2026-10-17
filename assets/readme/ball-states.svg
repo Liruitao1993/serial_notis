@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="260" viewBox="0 0 900 260" role="img" aria-labelledby="bs-title bs-desc">
+  <title id="bs-title">悬浮球状态示意</title>
+  <desc id="bs-desc">悬浮球三种状态：常态显示串口数、插入闪绿、拔出闪红，以及卡通形象模式。</desc>
+
+  <rect width="900" height="260" rx="18" fill="#0B0F14"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <!-- 标题 -->
+    <text x="40" y="40" font-size="22" font-weight="700" fill="#F0F6FC">悬浮球状态</text>
+
+    <!-- 常态 -->
+    <g transform="translate(60 70)">
+      <circle cx="50" cy="50" r="46" fill="url(#ballGrad1)"/>
+      <text x="50" y="68" text-anchor="middle" font-size="40" font-weight="700" fill="#FFFFFF">3</text>
+      <text x="50" y="124" text-anchor="middle" font-size="15" fill="#8B949E">常态</text>
+      <text x="50" y="144" text-anchor="middle" font-size="13" fill="#6E7681">显示串口数量</text>
+    </g>
+
+    <!-- 插入闪绿 -->
+    <g transform="translate(250 70)">
+      <circle cx="50" cy="50" r="52" fill="none" stroke="#3FB950" stroke-width="3" opacity="0.4"/>
+      <circle cx="50" cy="50" r="46" fill="url(#ballGrad1)"/>
+      <text x="50" y="68" text-anchor="middle" font-size="40" font-weight="700" fill="#FFFFFF">4</text>
+      <text x="50" y="124" text-anchor="middle" font-size="15" fill="#8B949E">插入闪绿</text>
+      <text x="50" y="144" text-anchor="middle" font-size="13" fill="#6E7681">新设备接入</text>
+    </g>
+
+    <!-- 拔出闪红 -->
+    <g transform="translate(440 70)">
+      <circle cx="50" cy="50" r="52" fill="none" stroke="#E65050" stroke-width="3" opacity="0.4"/>
+      <circle cx="50" cy="50" r="46" fill="url(#ballGrad1)"/>
+      <text x="50" y="68" text-anchor="middle" font-size="40" font-weight="700" fill="#FFFFFF">3</text>
+      <text x="50" y="124" text-anchor="middle" font-size="15" fill="#8B949E">拔出闪红</text>
+      <text x="50" y="144" text-anchor="middle" font-size="13" fill="#6E7681">设备断开</text>
+    </g>
+
+    <!-- 卡通形象 -->
+    <g transform="translate(640 56)">
+      <circle cx="58" cy="58" r="56" fill="#E8F5E9" stroke="#A5D6A7" stroke-width="2"/>
+      <!-- 简化的小龙轮廓 -->
+      <circle cx="58" cy="52" r="28" fill="#81C784"/>
+      <circle cx="46" cy="46" r="6" fill="#FFFFFF"/>
+      <circle cx="46" cy="46" r="3" fill="#1B5E20"/>
+      <circle cx="70" cy="46" r="6" fill="#FFFFFF"/>
+      <circle cx="70" cy="46" r="3" fill="#1B5E20"/>
+      <path d="M48 60 Q58 68 68 60" stroke="#1B5E20" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <!-- 气泡 -->
+      <rect x="72" y="20" width="40" height="28" rx="8" fill="#FFFFFF" stroke="#E0E0E0" stroke-width="1"/>
+      <text x="92" y="40" text-anchor="middle" font-size="18" font-weight="700" fill="#1B5E20">4</text>
+      <polygon points="72,38 66,46 72,44" fill="#FFFFFF" stroke="#E0E0E0" stroke-width="1"/>
+      <text x="58" y="130" text-anchor="middle" font-size="15" fill="#8B949E">小奶龙形象</text>
+      <text x="58" y="150" text-anchor="middle" font-size="13" fill="#6E7681">支持图片 / QPainter</text>
+    </g>
+  </g>
+
+  <defs>
+    <radialGradient id="ballGrad1" cx="40%" cy="35%">
+      <stop offset="0%" stop-color="#8EC5FC"/>
+      <stop offset="100%" stop-color="#3A5CDC"/>
+    </radialGradient>
+  </defs>
+</svg>

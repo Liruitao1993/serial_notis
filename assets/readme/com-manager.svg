@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="480" viewBox="0 0 900 480" role="img" aria-labelledby="cm-title cm-desc">
+  <title id="cm-title">串口号管理示意图</title>
+  <desc id="cm-desc">串口号管理对话框：列出在线与已拔出的幽灵串口，支持清理幽灵口号、把设备固定到指定串口号，并在每次修改前自动备份。</desc>
+
+  <rect width="900" height="480" rx="18" fill="#0B0F14"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <text x="40" y="44" font-size="22" font-weight="700" fill="#F0F6FC">串口号管理</text>
+    <text x="40" y="72" font-size="13" fill="#8B949E">清理已失效的幽灵串口号 · 给设备固定指定串口号 · 修改前自动备份</text>
+
+    <!-- 设备表格 -->
+    <rect x="40" y="96" width="820" height="250" rx="12" fill="#1C2128" stroke="#30363D" stroke-width="1.5"/>
+    <rect x="40" y="96" width="820" height="38" rx="12" fill="#21262D"/>
+    <rect x="40" y="122" width="820" height="12" fill="#1C2128"/>
+    <text x="72" y="121" font-size="13" font-weight="600" fill="#8B949E">状态</text>
+    <text x="232" y="121" font-size="13" font-weight="600" fill="#8B949E">串口号</text>
+    <text x="392" y="121" font-size="13" font-weight="600" fill="#8B949E">设备</text>
+
+    <!-- 行 1：在线 -->
+    <circle cx="76" cy="160" r="6" fill="#3FB950"/>
+    <text x="94" y="165" font-size="13" font-weight="600" fill="#7EE787">在线</text>
+    <text x="232" y="165" font-size="13" font-weight="600" fill="#F0F6FC">COM3</text>
+    <text x="392" y="165" font-size="13" fill="#C9D1D9">USB-SERIAL CH340</text>
+    <line x1="40" y1="186" x2="860" y2="186" stroke="#30363D" stroke-width="1"/>
+
+    <!-- 行 2：幽灵口（选中） -->
+    <rect x="41" y="187" width="818" height="51" fill="rgba(248,81,73,0.07)"/>
+    <circle cx="76" cy="212" r="6" fill="#F85149"/>
+    <text x="94" y="217" font-size="13" font-weight="600" fill="#F85149">幽灵</text>
+    <text x="232" y="217" font-size="13" font-weight="600" fill="#8B949E">COM27</text>
+    <text x="392" y="217" font-size="13" fill="#6E7681">已拔出 · CH340</text>
+    <line x1="40" y1="238" x2="860" y2="238" stroke="#30363D" stroke-width="1"/>
+
+    <!-- 行 3：幽灵口 -->
+    <circle cx="76" cy="264" r="6" fill="#F85149"/>
+    <text x="94" y="269" font-size="13" font-weight="600" fill="#F85149">幽灵</text>
+    <text x="232" y="269" font-size="13" font-weight="600" fill="#8B949E">COM28</text>
+    <text x="392" y="269" font-size="13" fill="#6E7681">已拔出 · FT232R</text>
+    <line x1="40" y1="290" x2="860" y2="290" stroke="#30363D" stroke-width="1"/>
+
+    <!-- 行 4：在线 -->
+    <circle cx="76" cy="316" r="6" fill="#3FB950"/>
+    <text x="94" y="321" font-size="13" font-weight="600" fill="#7EE787">在线</text>
+    <text x="232" y="321" font-size="13" font-weight="600" fill="#F0F6FC">COM4</text>
+    <text x="392" y="321" font-size="13" fill="#C9D1D9">USB-SERIAL CP2102</text>
+
+    <!-- 操作区 -->
+    <rect x="40" y="356" width="820" height="88" rx="12" fill="#161B22" stroke="#30363D" stroke-width="1.5"/>
+
+    <text x="64" y="396" font-size="13" fill="#8B949E">固定选中设备为</text>
+    <rect x="196" y="376" width="104" height="30" rx="6" fill="#21262D" stroke="#30363D" stroke-width="1.5"/>
+    <text x="214" y="396" font-size="13" font-weight="600" fill="#F0F6FC">COM5</text>
+    <text x="286" y="396" font-size="11" fill="#8B949E">▾</text>
+
+    <rect x="316" y="376" width="76" height="30" rx="6" fill="rgba(90,140,240,0.16)" stroke="#5A8CF0" stroke-width="1.5"/>
+    <text x="354" y="396" font-size="13" font-weight="600" fill="#5A8CF0" text-anchor="middle">固定</text>
+
+    <rect x="404" y="376" width="120" height="30" rx="6" fill="rgba(248,81,73,0.12)" stroke="#F85149" stroke-width="1.5"/>
+    <text x="464" y="396" font-size="13" font-weight="600" fill="#F85149" text-anchor="middle">清理选中幽灵口</text>
+
+    <rect x="536" y="376" width="104" height="30" rx="6" fill="#21262D" stroke="#30363D" stroke-width="1.5"/>
+    <text x="588" y="396" font-size="13" font-weight="600" fill="#C9D1D9" text-anchor="middle">恢复备份</text>
+
+    <text x="64" y="428" font-size="12" fill="#6E7681">最近备份：com_backups/com_port_backup-20261017-134501.json</text>
+    <text x="700" y="428" font-size="12" fill="#6E7681">修改需要管理员权限（UAC）</text>
+  </g>
+</svg>

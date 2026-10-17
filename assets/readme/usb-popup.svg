@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300" role="img" aria-labelledby="up-title up-desc">
+  <title id="up-title">USB 3D 弹框示意</title>
+  <desc id="up-desc">USB 插拔时屏幕居中的 3D 风格弹框动画，插入绿色调、拔出红色调。</desc>
+
+  <rect width="600" height="300" rx="18" fill="#0B0F14"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <text x="40" y="40" font-size="22" font-weight="700" fill="#F0F6FC">USB 3D 弹框</text>
+
+    <!-- 插入弹框 -->
+    <g transform="translate(60 70)">
+      <text x="90" y="-8" text-anchor="middle" font-size="14" font-weight="600" fill="#7EE787">插入</text>
+      <rect width="180" height="190" rx="16" fill="rgba(120,220,140,0.08)" stroke="rgba(120,220,140,0.3)" stroke-width="1.5"/>
+      <!-- USB 图标（简化） -->
+      <g transform="translate(55 30)">
+        <rect x="20" y="0" width="30" height="8" rx="2" fill="#7EE787" opacity="0.8"/>
+        <rect x="25" y="8" width="20" height="60" rx="4" fill="#7EE787" opacity="0.6"/>
+        <rect x="15" y="68" width="40" height="12" rx="3" fill="#7EE787" opacity="0.4"/>
+        <!-- 插头触点 -->
+        <rect x="28" y="72" width="6" height="4" rx="1" fill="#3FB950"/>
+        <rect x="36" y="72" width="6" height="4" rx="1" fill="#3FB950"/>
+      </g>
+      <text x="90" y="130" text-anchor="middle" font-size="14" font-weight="600" fill="#7EE787">COM27</text>
+      <text x="90" y="150" text-anchor="middle" font-size="12" fill="#8B949E">传感器</text>
+      <text x="90" y="172" text-anchor="middle" font-size="11" fill="#6E7681">已插入</text>
+    </g>
+
+    <!-- 拔出弹框 -->
+    <g transform="translate(340 70)">
+      <text x="90" y="-8" text-anchor="middle" font-size="14" font-weight="600" fill="#FFA0A0">拔出</text>
+      <rect width="180" height="190" rx="16" fill="rgba(230,80,80,0.08)" stroke="rgba(230,80,80,0.3)" stroke-width="1.5"/>
+      <!-- USB 图标（断开感） -->
+      <g transform="translate(55 30)">
+        <rect x="20" y="0" width="30" height="8" rx="2" fill="#E65050" opacity="0.8"/>
+        <rect x="25" y="8" width="20" height="60" rx="4" fill="#E65050" opacity="0.5"/>
+        <rect x="15" y="68" width="40" height="12" rx="3" fill="#E65050" opacity="0.3"/>
+        <!-- 断开线 -->
+        <line x1="10" y1="50" x2="70" y2="50" stroke="#E65050" stroke-width="2" stroke-dasharray="4,3" opacity="0.6"/>
+      </g>
+      <text x="90" y="130" text-anchor="middle" font-size="14" font-weight="600" fill="#FFA0A0">COM7</text>
+      <text x="90" y="150" text-anchor="middle" font-size="12" fill="#8B949E">调试口</text>
+      <text x="90" y="172" text-anchor="middle" font-size="11" fill="#6E7681">已拔出</text>
+    </g>
+
+    <text x="40" y="290" font-size="13" fill="#6E7681">纯 QPainter 绘制，无图片资源。Ease-out-back 缓动：图标先放大再弹回。展示时长 0.5~5 秒可调。</text>
+  </g>
+</svg>
