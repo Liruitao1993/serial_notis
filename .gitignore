@@ -11,3 +11,21 @@ port_aliases.json
 
 # Local tooling (opencode server state, contains secrets)
 .opencode/
+.opencode
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
+# Runtime data generated next to the exe (or repo root when run from source)
+app.log
+config.json
+com_backups/
+
+# Exported README PDF (regenerate from README.md when needed)
+README.pdf
+
+# Local AI tooling state (not project source)
+.pi-glla/
+.serena/
+.pi/tasks/
