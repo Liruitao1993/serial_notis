@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/PySide6-6.x-41CD52?style=flat-square" alt="PySide6">
   <img src="https://img.shields.io/badge/pyserial-3.x-0891B2?style=flat-square" alt="pyserial">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square" alt="平台 Windows 10/11">
-  <img src="https://img.shields.io/badge/tests-78%20passed-brightgreen?style=flat-square" alt="78 个测试通过">
+  <img src="https://img.shields.io/badge/tests-100%20passed-brightgreen?style=flat-square" alt="100 个测试通过">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License">
 </p>
 
@@ -52,6 +52,9 @@
 
 **④ 外观完全可定制**
 悬浮球主题 6 组、卡片主题 6 组、卡片风格 3 种（卡片/气泡/极简）、圆角 0~24px、宽度 240~480px、字体族与字号、字体颜色、卡片透明度实时可调，设置即时生效。
+
+**⑤ 响应档位：快与省不用二选一**
+三档可选：**均衡**（默认，兜底预检 1 秒）、**敏捷**（0.5 秒，响应最快）、**省电**（10 秒 + 动效静止，适合笔记本电池），**自动**档随电源状态切换。因为每轮预检只查一次约 0.12ms 的设备名表、不读注册表，实测各档空闲 CPU 占用都在 0.03% 以内。
 
 ---
 
@@ -203,6 +206,7 @@ pyinstaller 串口提示助手.spec
 
 | 选项 | 可选值 | 说明 |
 | --- | --- | --- |
+| 响应档位 | 自动 / 省电 / 均衡 / 敏捷 | 兜底轮询频率 + 事件复核延迟 + 动效帧率；自动档插电用均衡、电池用省电 |
 | 悬浮球主题 | 深空蓝 / 云白 / 极光紫 / 薄荷 / 黑金 / 珊瑚 | 渐变双色 + 文字色 + 闪动色 |
 | 悬浮球形象 | 经典球 / 小奶龙 / 大白 | 支持图片（`assets/mascots/`）或 QPainter 矢量绘制 |
 | 悬浮球动效 | 关 / 呼吸 / 脉冲光环 / 旋转粒子 | 球体周围的视觉动效 |
@@ -260,7 +264,8 @@ autostart.py           开机自启（HKCU Run 注册表）
 settings_dialog.py     设置对话框（外观 + 通知，即时生效）
 tools/make_icon.py     图标生成脚本（assets/icon.ico）
 tools/bench_cpu.py     CPU 基准（轮询枚举与悬浮球动效重绘开销）
-tests/                 pytest 测试套件（78 个测试）
+perf_profile.py        响应档位（预检频率 / 事件复核延迟 / 动效帧率 + 电源状态判定）
+tests/                 pytest 测试套件（100 个测试）
 assets/
   icon.ico             应用图标
   mascots/             卡通形象图片（小奶龙.png）
@@ -317,13 +322,14 @@ python tools/make_icon.py
 pyinstaller 串口提示助手.spec
 ```
 
-### 测试覆盖（78 个测试，全部 headless）
+### 测试覆盖（100 个测试，全部 headless）
 
 | 文件 | 覆盖内容 |
 | --- | --- |
 | `test_serial_monitor.py` | 串口枚举 / 差异检测 / 事件过滤 / 故障安全 |
 | `test_card_window.py` | 卡片列表重建 / 强制刷新 / 自然排序 / 内容指纹缓存 |
 | `test_com_manager.py` | ComDB 位图换算 / 设备列举 / 清理与固定 / 备份恢复 / 提权命令行 |
+| `test_perf_profile.py` | 档位参数表完整性 / 单调性 / 电源状态解析与回退 / 设置联动 |
 | `test_themes.py` | 主题注册完整性 / 圆角解析 / QSS 应用 / 设置即时生效 |
 | `test_app_config.py` | 配置读写 / 类型强制 / 默认值 |
 | `test_alias_store.py` | 备注名持久化 |
@@ -362,6 +368,9 @@ A：每次修改前都会自动备份注册表状态到 `com_backups/`，对话�
 
 **Q：多个副屏 / 高 DPI 下会错位吗？**
 A：悬浮球可自由拖动，卡片与弹框按主屏居中；高 DPI 缩放已在 Qt 层适配，如有异常欢迎提 Issue。
+**Q：它会一直占着 CPU 吗？**
+A：几乎不。检测以设备广播事件驱动为主，兜底轮询每轮只做一次约 0.12ms 的廉价检查（`QueryDosDevice`，不读注册表），实测空闲约 0.01%；动效选「关」或在「省电」档时会停止重绘。想更省电，设置里选「省电」档即可。
+
 
 ---
 

@@ -19,7 +19,9 @@ Windows device broadcast (WM_DEVICECHANGE 0x0219)
 ```
 
 - **Event capture is owned by `SerialMonitor`** (composed `_DeviceChangeFilter`), not by any widget — the monitor works even if the ball is removed. Filter is installed via `app.installNativeEventFilter(monitor.event_filter)`.
-- **Fallback polling**: `SerialMonitor` also runs a 1s `QTimer` (`POLL_INTERVAL_MS = 1000`) calling `refresh()` — detection is not exclusively event-driven.
+- **Fallback polling**: `SerialMonitor` also runs a `QTimer` (default `POLL_INTERVAL_MS = 1000`) calling `refresh()` — detection is not exclusively event-driven. Every tick first runs the cheap `_cheap_port_names()` pre-check (`QueryDosDevice`, ~0.12 ms vs ~12.6 ms for a full pyserial enumeration) and skips enumeration when the COM set is unchanged, so a high poll rate costs almost nothing and never touches the registry.
+- **Fast-path refresh**: `schedule_refresh()` (on `WM_DEVICECHANGE`) runs that same pre-check first; if the COM set already changed it refreshes immediately (~13 ms to notification) instead of waiting out `DEVICE_CHANGE_DELAY_MS`, then still schedules the delayed re-check to backfill description / VID:PID.
+- **Response profiles**: `perf_profile.py` maps 自动/省电/均衡/敏捷 → `{poll_ms, event_delay_ms, anim_fps}`; 自动 follows `on_battery()` (AC → 均衡, battery → 省电). `main.apply_perf_profile()` applies them via `monitor.set_timings()` + `ball.set_anim_fps()` at startup, on settings preview, and every `POWER_CHECK_INTERVAL_MS` (30 s). `FloatBall.set_anim_fps()` freezes the animation phase when fps ≤ `STATIC_FPS_MAX` (10) — the 省电 profile keeps only a 5 fps tick to expire event bubbles.
 - **Enumeration failure safety**: `_snapshot()` catches exceptions, logs, returns `None`; `refresh()` then keeps the old state — no false removals, no crash.
 - **Manual refresh**: card refresh button → `CardWindow.refresh_requested` → `main.on_refresh` → `monitor.refresh()` + `update_ports(..., force=True)` (bypasses the content-signature cache and rebuilds rows — fixes ghost rows).
 - **Persistence**: `AliasStore` keeps `{COM口: 备注名}` in `port_aliases.json`; `AppConfig` keeps user settings in `config.json`; both write immediately on change, load at startup, and live next to the exe (`app_paths.data_dir()` — `dirname(sys.executable)` when frozen; PyInstaller one-file makes `__file__` unreliable, always use `sys.executable`).
@@ -35,6 +37,11 @@ Windows device broadcast (WM_DEVICECHANGE 0x0219)
 | `card_window.py` | `CardWindow` (translucent port list), `PortRow`, `NotificationItem` (auto-fade, configurable lifetime) |
 | `float_ball.py` | `FloatBall`: 56px draggable ball, paint/flash animation, right-click context menu (shares the tray `QMenu` instance via `set_context_menu`) |
 | `serial_monitor.py` | `SerialMonitor` (QObject): port enumeration + diff, `PortInfo` dataclass, `_DeviceChangeFilter` (native event capture) |
+| `usb_popup.py` | `UsbPopup`: centered USB 3D splash painted with QPainter (Ease-out-back), duration from `popup_duration_ms` |
+| `mascots.py` | Cartoon mascot painting (小奶龙 / 大白): image from `assets/mascots/` or pure QPainter, with speech bubble showing the port count |
+| `com_manager.py` | 串口号管理核心：注册表 `ComDB` 位图读写、设备实例列举、清理幽灵口 / 固定口号 / 备份恢复、UAC 提权子任务（`try_run_com_task` 在 `main()` 最前处理 `--com-task`） |
+| `com_manager_dialog.py` | `ComManagerDialog`：串口号管理对话框（状态 / 串口号 / 设备表格 + 清理 / 固定 / 恢复备份） |
+| `perf_profile.py` | 响应档位注册表 `{poll_ms, event_delay_ms, anim_fps}`、`on_battery()` 电源判定、`resolve()`（非法值回退默认） |
 | `alias_store.py` | `AliasStore`: JSON persistence of port aliases |
 | `app_config.py` | `AppConfig`: user settings (notify lifetime / auto-show / notify-on-remove), JSON persistence, type coercion |
 | `app_paths.py` | `data_dir()`/`data_file()`: exe-adjacent data directory (frozen-aware) |
@@ -75,7 +82,7 @@ Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check g
 
 - **Chinese docstrings** on every module, class, and public method; inline comments in Chinese.
 - **No type hints** on public APIs except dataclasses (`PortInfo`) and a few pure helpers where the analyzer needs them; payload types documented in docstrings (e.g. `ports: {device: description}`).
-- **Module-level constants** in UPPER_SNAKE: `POLL_INTERVAL_MS`, `DEVICE_CHANGE_DELAY_MS`, `NOTIFY_LIFETIME_MS`, `ALPHA_MIN/MAX/DEFAULT`.
+- **Module-level constants** in UPPER_SNAKE: `POLL_INTERVAL_MS`, `DEVICE_CHANGE_DELAY_MS`, `NOTIFY_LIFETIME_MS`, `FADE_IN_MS/FADE_OUT_MS`, `DEFAULT_ANIM_FPS`, `STATIC_FPS_MAX`, `ALPHA_MIN/MAX/DEFAULT`. Anything a response profile can override lives in `perf_profile.PROFILES`; the module constant is only the fallback default.
 - **Qt signals** as class attributes with Chinese payload comments: `port_added = Signal(str, str)` / `refresh_requested = Signal()` / `edit_requested = Signal(str)`. Request-style naming (`xxx_requested`) for outbound "please do X" signals; wiring always lives in `main.py`, never inside widgets.
 - **Error handling**: swallow-and-degrade, never crash the GUI. File I/O: `except (OSError, ValueError)` then **log via `logger.exception(...)`** (don't silently pass). Native/OS paths: `except OSError`.
 - **Config-driven behavior**: user-tunable values go through `AppConfig` (see `DEFAULTS`), read at event time in `main.py` so changes apply live; don't hardcode new timings. Appearance keys: `ball_theme` / `card_theme` / `card_style` / `card_radius` / `card_width` / `font_family` (empty=system) / `font_size` (8–18, title/count derive ±2/-1) / `font_color` (empty=theme). **Adding a theme** = one entry in `themes.BALL_THEMES`/`CARD_THEMES`/`CARD_STYLES` (all keys required — enforced by `tests/test_themes.py`). Font family propagates via `setFont()` (children inherit); QSS only overrides derived sizes.
@@ -95,7 +102,7 @@ Runtime: **Python 3.13, Windows only**. No Python lockfile, no lint/type-check g
 
 ## Testing & QA
 
-- **pytest suite in `tests/`** (45 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter, `AliasStore` persistence, `AppConfig` coercion, `CardWindow` rebuild cache + force + sort, theme registry completeness/radius/applied-QSS/dialog instant-apply/typography (font family/size/color/width), `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
+- **pytest suite in `tests/`** (100 tests, all headless): `SerialMonitor` diff/failure/coalescing/event-filter + `set_timings`/fast-path pre-check, `AliasStore` persistence, `AppConfig` coercion, `com_manager` ComDB bitmap/device listing/clear+assign/backup-restore/elevation command line, `perf_profile` table completeness/monotonicity/power-source resolve/fallback, `CardWindow` rebuild cache + force + sort, theme registry completeness/radius/applied-QSS/dialog instant-apply/typography (font family/size/color/width) + response-profile combo, `Autostart` value building, `QLockFile` exclusivity, icon validity + spec reference, full-wiring smoke.
 - Fixtures: `tests/conftest.py` forces `QT_QPA_PLATFORM=offscreen` before importing Qt.
 - Test style: inject snapshots / patch `list_ports.comports` — never touch real hardware or the real registry.
 - Manual verification for GUI-only behavior: `python main.py`, plug/unplug a USB serial device, confirm card/ball/notifications, aliases + settings persist across restart, second instance is blocked, tray settings/autostart work.
